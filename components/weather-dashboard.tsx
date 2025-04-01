@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState, useEffect, useCallback, useRef } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import {
   Cloud,
@@ -31,12 +31,13 @@ import {
   getUserLocation,
   getWeatherByCoordinates,
   type WeatherData,
+  getWeatherByCityName,
 } from "@/lib/weather-service";
+import { CitySearch } from "@/components/ui/city-search";
 
 export default function WeatherDashboard() {
   const [weatherData, setWeatherData] = useState<WeatherData | null>(null);
   const [city, setCity] = useState<string | undefined>(undefined);
-  const [searchInput, setSearchInput] = useState("");
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
   const [streak, setStreak] = useState(() => {
@@ -60,6 +61,12 @@ export default function WeatherDashboard() {
   const [isRefreshing, setIsRefreshing] = useState(false);
   const [tempUnit, setTempUnit] = useState<"F" | "C">("F");
   const { theme, setTheme } = useTheme();
+  const [refreshKey, setRefreshKey] = useState(0);
+
+  // Prevent duplicate API calls
+  const isFetchingRef = useRef(false);
+  // Store last fetch time to control refresh rate
+  const lastFetchTimeRef = useRef(0);
 
   // Save streak and points to localStorage when they change
   useEffect(() => {
@@ -79,55 +86,123 @@ export default function WeatherDashboard() {
     }
   }, []);
 
-  // Fetch weather data initially - will use geolocation if available
+  // Enhanced fetch function to avoid race conditions and provide better error handling
+  const fetchWeatherData = useCallback(async (cityName?: string) => {
+    // Prevent duplicate fetches and throttle requests (max 1 request per 2 seconds)
+    const now = Date.now();
+    const minTimeBetweenFetches = 2000; // 2 seconds
+
+    if (isFetchingRef.current) {
+      console.log("Fetch already in progress, skipping");
+      return null;
+    }
+
+    if (now - lastFetchTimeRef.current < minTimeBetweenFetches) {
+      console.log("Throttling API requests, too many requests");
+      return null;
+    }
+
+    try {
+      console.log(
+        "Fetching weather data for city:",
+        cityName || "Using geolocation"
+      );
+      setLoading(true);
+      setError("");
+
+      // Set the fetching flag to prevent duplicate calls
+      isFetchingRef.current = true;
+      lastFetchTimeRef.current = now;
+
+      const data = await getWeatherData(cityName);
+      console.log("Weather data fetched successfully:", data.location);
+      return data;
+    } catch (err) {
+      console.error("Error in fetchWeatherData:", err);
+      setError("Failed to load weather data. Please try again.");
+      return null;
+    } finally {
+      // Reset the fetching flag
+      isFetchingRef.current = false;
+      setLoading(false);
+    }
+  }, []);
+
+  // Fetch weather data when component mounts or when city changes
   useEffect(() => {
-    async function fetchData() {
-      try {
-        setLoading(true);
-        setError("");
-        const data = await getWeatherData(city);
+    console.log(
+      "useEffect triggered with city:",
+      city,
+      "and refreshKey:",
+      refreshKey
+    );
+    let isMounted = true;
+
+    async function initialFetch() {
+      const data = await fetchWeatherData(city);
+      if (data && isMounted) {
+        console.log("Setting weather data from useEffect:", data.location);
         setWeatherData(data);
-      } catch (err) {
-        setError("Failed to load weather data. Please try again.");
-        console.error(err);
-      } finally {
-        setLoading(false);
       }
     }
 
-    fetchData();
-  }, [city]);
+    initialFetch();
 
-  // Handle manual refresh
+    // Cleanup function to prevent state updates if component unmounts
+    return () => {
+      isMounted = false;
+    };
+  }, [city, refreshKey, fetchWeatherData]);
+
+  // Handle manual refresh with improved error handling
   const refreshWeather = async () => {
+    if (isRefreshing) {
+      console.log("Already refreshing, skipping");
+      return;
+    }
+
     try {
       setIsRefreshing(true);
+      console.log("Manual refresh triggered");
 
       // Try to get fresh location data if no city is specified
       if (!city) {
         const coordinates = await getUserLocation();
         if (coordinates) {
+          console.log("Got coordinates from geolocation:", coordinates);
           const data = await getWeatherByCoordinates(
             coordinates.lat,
             coordinates.lon
           );
-          setWeatherData(data);
 
-          // Give points for refreshing
-          setPoints((prev) => prev + 5);
+          if (data) {
+            console.log(
+              "Setting weather data from manual refresh:",
+              data.location
+            );
+            setWeatherData(data);
+            setRefreshKey((prev) => prev + 1);
+
+            // Give points for refreshing
+            setPoints((prev) => prev + 5);
+          }
           return;
         }
       }
 
       // Fallback to city-based search
       const data = await getWeatherData(city);
-      setWeatherData(data);
+      if (data) {
+        console.log("Setting weather data from city refresh:", data.location);
+        setWeatherData(data);
+        setRefreshKey((prev) => prev + 1);
 
-      // Give points for refreshing
-      setPoints((prev) => prev + 5);
+        // Give points for refreshing
+        setPoints((prev) => prev + 5);
+      }
     } catch (err) {
-      setError("Failed to refresh weather data.");
-      console.error(err);
+      console.error("Error in refreshWeather:", err);
+      setError("Failed to refresh weather data. Please try again.");
     } finally {
       setIsRefreshing(false);
     }
@@ -138,6 +213,7 @@ export default function WeatherDashboard() {
     try {
       setLoading(true);
       setError("");
+      console.log("Getting current location");
 
       const coordinates = await getUserLocation();
       if (!coordinates) {
@@ -147,33 +223,97 @@ export default function WeatherDashboard() {
         return;
       }
 
+      console.log("Got coordinates from geolocation:", coordinates);
+
       // Clear city to use coordinates
       setCity(undefined);
+
+      // This will trigger the useEffect due to city change
+      // But we also fetch directly to avoid delay
       const data = await getWeatherByCoordinates(
         coordinates.lat,
         coordinates.lon
       );
-      setWeatherData(data);
 
-      // Reward for using location
-      setPoints((prev) => prev + 10);
+      if (data) {
+        console.log("Setting weather data from location:", data.location);
+        setWeatherData(data);
+        setRefreshKey((prev) => prev + 1);
+
+        // Reward for using location
+        setPoints((prev) => prev + 10);
+      }
     } catch (err) {
+      console.error("Error in useCurrentLocation:", err);
       setError("Failed to get your location. Please try again.");
-      console.error(err);
     } finally {
       setLoading(false);
     }
   };
 
-  // Handle search
-  const handleSearch = (e: React.FormEvent) => {
-    e.preventDefault();
-    if (searchInput.trim()) {
-      setCity(searchInput.trim());
-      setSearchInput("");
-      setPoints((prev) => prev + 5); // Reward for searching a new city
+  // Handle city selection from search with direct data fetching
+  const handleCitySelect = useCallback(async (selectedCity: string) => {
+    console.log("City selected by name:", selectedCity);
+    if (!selectedCity.trim()) {
+      console.log("Empty city name, ignoring");
+      return;
     }
-  };
+
+    try {
+      setLoading(true);
+      setError("");
+
+      // Update city state
+      setCity(selectedCity);
+
+      // Fetch weather data directly
+      const data = await getWeatherByCityName(selectedCity);
+      console.log("Weather data fetched by name:", data.location);
+
+      // Force a refresh by updating state
+      setWeatherData(data);
+      setRefreshKey((prev) => prev + 1);
+
+      // Reward for searching a new city
+      setPoints((prev) => prev + 5);
+    } catch (err) {
+      console.error("Error in handleCitySelect:", err);
+      setError("Failed to get weather data for selected city.");
+    } finally {
+      setLoading(false);
+    }
+  }, []);
+
+  // Handle coordinates selection from search with direct data fetching
+  const handleCoordinatesSelect = useCallback(
+    async (lat: number, lon: number) => {
+      console.log("Coordinates selected:", lat, lon);
+      try {
+        setLoading(true);
+        setError("");
+
+        // Clear city to use coordinates directly
+        setCity(undefined);
+
+        // Fetch weather data directly
+        const data = await getWeatherByCoordinates(lat, lon);
+        console.log("Weather data fetched by coordinates:", data.location);
+
+        // Force a refresh by updating state
+        setWeatherData(data);
+        setRefreshKey((prev) => prev + 1);
+
+        // Reward for using coordinates search
+        setPoints((prev) => prev + 8);
+      } catch (err) {
+        console.error("Error in handleCoordinatesSelect:", err);
+        setError("Failed to get weather data for selected location.");
+      } finally {
+        setLoading(false);
+      }
+    },
+    []
+  );
 
   // Simulate checking weather and earning points
   const checkWeather = () => {
@@ -343,7 +483,7 @@ export default function WeatherDashboard() {
             <p className="text-red-600 dark:text-red-400">{error}</p>
           </div>
           <div className="flex gap-4 justify-center">
-            <Button onClick={() => setCity("San Francisco")}>
+            <Button onClick={() => handleCitySelect("Singapore")}>
               Try Default City
             </Button>
             <Button onClick={useCurrentLocation} variant="outline">
@@ -414,22 +554,21 @@ export default function WeatherDashboard() {
       </header>
 
       <div className="mb-6 flex flex-col sm:flex-row gap-2">
-        <form onSubmit={handleSearch} className="flex gap-2 flex-1">
-          <Input
-            type="text"
-            placeholder="Enter city name..."
-            value={searchInput}
-            onChange={(e) => setSearchInput(e.target.value)}
-            className="flex-1"
+        <div className="flex-1">
+          <CitySearch
+            onCitySelect={handleCitySelect}
+            onCoordinatesSelect={handleCoordinatesSelect}
+            isLoading={loading}
+            error={error}
           />
-          <Button type="submit" variant="default">
-            <Search className="h-4 w-4 mr-2" />
-            Search
-          </Button>
-        </form>
+        </div>
 
         <div className="flex gap-2 mt-2 sm:mt-0">
-          <Button onClick={useCurrentLocation} variant="outline">
+          <Button
+            onClick={useCurrentLocation}
+            variant="outline"
+            disabled={loading}
+          >
             <MapPin className="h-4 w-4 mr-2" />
             My Location
           </Button>
@@ -437,7 +576,7 @@ export default function WeatherDashboard() {
           <Button
             onClick={refreshWeather}
             variant="outline"
-            disabled={isRefreshing}
+            disabled={isRefreshing || loading}
             className={isRefreshing ? "opacity-70" : ""}
           >
             <RefreshCw
@@ -688,6 +827,18 @@ export default function WeatherDashboard() {
           />
         )}
       </AnimatePresence>
+
+      {/* API Debug Link */}
+      <div className="mt-8 text-center">
+        <Button
+          variant="link"
+          size="sm"
+          className="text-slate-500 dark:text-slate-400 hover:text-slate-700 dark:hover:text-slate-300"
+          onClick={() => (window.location.href = "/api-debug")}
+        >
+          API Debug Tools
+        </Button>
+      </div>
     </div>
   );
 }

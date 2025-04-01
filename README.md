@@ -38,11 +38,11 @@ pnpm install
 ```
 
 3. Set up environment variables
-   - Copy `.env.example` to `.env.local`
+   - Copy `.env.local.example` to `.env.local`
    - Replace the placeholder API key with your OpenWeatherMap API key (get one at [OpenWeatherMap](https://openweathermap.org/api))
 
 ```bash
-cp .env.example .env.local
+cp .env.local.example .env.local
 ```
 
 4. Run the development server
@@ -59,7 +59,7 @@ pnpm dev
 
 ## API Integration
 
-The app uses the OpenWeatherMap API to fetch real weather data. If you don't provide an API key, the app will fall back to using mock data.
+The app uses the OpenWeatherMap API to fetch real weather data. If you don't provide an API key, the app will automatically fall back to using enhanced mock data with realistic variations.
 
 ### API Service
 
@@ -67,7 +67,24 @@ The weather service is located in `lib/weather-service.ts` and handles:
 
 - Fetching current weather conditions
 - Fetching and processing the forecast data
-- Fallback to mock data when API keys aren't provided
+- Handling API errors and retry logic
+- Fallback to sophisticated mock data when API keys aren't provided or are invalid
+
+### API Troubleshooting
+
+If you encounter issues with the weather data:
+
+1. Visit the `/api-debug` page in the app to diagnose API connectivity issues
+2. Run the API test script to check direct API access: `node scripts/test-api.js`
+3. Verify that your API key is correctly set in `.env.local`
+4. Check that you're using a valid API key from OpenWeatherMap
+
+The app includes safeguards to handle API failures gracefully:
+
+- Caching prevention to ensure fresh data
+- Automatic retries for failed API calls
+- Detailed error logging
+- Fallback to mock data when necessary
 
 ## Project Structure
 
@@ -129,6 +146,37 @@ Possible future enhancements could include:
 - Implementing user accounts to save progress
 - Adding historical weather data visualization
 - Supporting multiple locations/favorites
+- Enhanced weather alerts and notifications
+- More detailed weather statistics
+
+## Troubleshooting
+
+### Common Issues
+
+1. **Weather data not updating**
+
+   - Check your OpenWeatherMap API key in `.env.local`
+   - Visit the `/api-debug` page to diagnose API issues
+   - Clear your browser cache or use incognito mode to test
+
+2. **Search not working**
+
+   - Make sure you're entering a valid city name
+   - The city search autocomplete supports cities in the predefined list
+   - Try using the location button for geolocation-based weather
+
+3. **Visual glitches**
+   - Try toggling between light and dark mode
+   - Ensure you're using a modern browser
+   - Clear your browser cache
+
+### Debug Tools
+
+The app includes several debugging tools:
+
+- API Debug Page (`/api-debug`) - Test API connectivity directly
+- Console logging - Check browser console for detailed logs
+- API Test Script - Run `node scripts/test-api.js` for direct API testing
 
 ## License
 
