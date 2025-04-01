@@ -33,6 +33,14 @@ import {
   type WeatherData,
   getWeatherByCityName,
 } from "@/lib/weather-service";
+import { 
+  getUserData, 
+  saveUserData, 
+  updateUserStats, 
+  getNewlyUnlockedAchievements,
+  type UserData,
+  type Achievement
+} from "@/lib/user-data-service";
 import { CitySearch } from "@/components/ui/city-search";
 
 export default function WeatherDashboard() {
@@ -40,22 +48,15 @@ export default function WeatherDashboard() {
   const [city, setCity] = useState<string | undefined>(undefined);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
-  const [streak, setStreak] = useState(() => {
-    // Load streak from localStorage or start at 0
+  const [userData, setUserData] = useState<UserData>(() => {
     if (typeof window !== "undefined") {
-      const savedStreak = localStorage.getItem("weatherStreak");
-      return savedStreak ? parseInt(savedStreak, 10) : 0;
+      return getUserData();
     }
-    return 0;
+    return getUserData(); // This handles SSR case internally
   });
-  const [points, setPoints] = useState(() => {
-    // Load points from localStorage or start at 0
-    if (typeof window !== "undefined") {
-      const savedPoints = localStorage.getItem("weatherPoints");
-      return savedPoints ? parseInt(savedPoints, 10) : 0;
-    }
-    return 0;
-  });
+  
+  const [streak, setStreak] = useState(userData.streak);
+  const [points, setPoints] = useState(userData.points);
   const [showAchievement, setShowAchievement] = useState(false);
   const [achievementType, setAchievementType] = useState("");
   const [isRefreshing, setIsRefreshing] = useState(false);
@@ -68,13 +69,13 @@ export default function WeatherDashboard() {
   // Store last fetch time to control refresh rate
   const lastFetchTimeRef = useRef(0);
 
-  // Save streak and points to localStorage when they change
   useEffect(() => {
     if (typeof window !== "undefined") {
-      localStorage.setItem("weatherStreak", streak.toString());
-      localStorage.setItem("weatherPoints", points.toString());
+      const updatedUserData = { ...userData, streak, points };
+      setUserData(updatedUserData);
+      saveUserData(updatedUserData);
     }
-  }, [streak, points]);
+  }, [streak, points, userData]);
 
   // Load saved temperature unit preference from localStorage
   useEffect(() => {
@@ -315,99 +316,42 @@ export default function WeatherDashboard() {
     []
   );
 
-  // Simulate checking weather and earning points
   const checkWeather = () => {
-    // Add points
-    const newPoints = points + 25;
-    setPoints(newPoints);
-
-    // Increment streak
-    const newStreak = streak + 1;
-    setStreak(newStreak);
-
-    // Update weather stats
     if (weatherData) {
-      // Get current stats
-      interface WeatherStats {
-        daysChecked: number;
-        rainyDays: number;
-        sunnyDays: number;
-        windyDays: number;
-        highestTemp: number;
-        lowestTemp: number;
-      }
-
-      const defaultStats: WeatherStats = {
-        daysChecked: 0,
-        rainyDays: 0,
-        sunnyDays: 0,
-        windyDays: 0,
-        highestTemp: -100,
-        lowestTemp: 200,
-      };
-
-      let statsData: WeatherStats = defaultStats;
-
-      if (typeof window !== "undefined") {
-        const savedStats = localStorage.getItem("weatherStats");
-        if (savedStats) {
-          try {
-            statsData = JSON.parse(savedStats) as WeatherStats;
-          } catch (e) {
-            console.error("Error parsing saved stats:", e);
-          }
+      const oldUserData = { ...userData };
+      
+      const updatedUserData = updateUserStats(
+        userData,
+        weatherData.current.weatherCode || 1000, // Default to clear if no code
+        weatherData.location,
+        weatherData.current.temp
+      );
+      
+      setUserData(updatedUserData);
+      setStreak(updatedUserData.streak);
+      setPoints(updatedUserData.points);
+      
+      saveUserData(updatedUserData);
+      
+      const newAchievements = getNewlyUnlockedAchievements(oldUserData, updatedUserData);
+      
+      if (newAchievements.length > 0) {
+        const achievement = newAchievements[0];
+        
+        let achievementType = "";
+        if (achievement.id.includes("streak")) {
+          achievementType = achievement.id === "streak-7" ? "streak-week" : "streak";
+        } else if (achievement.id.includes("points")) {
+          achievementType = achievement.id === "points-500" ? "explorer" : "enthusiast";
+        } else if (achievement.id.includes("cities")) {
+          achievementType = "explorer";
+        } else {
+          achievementType = "enthusiast";
         }
+        
+        setAchievementType(achievementType);
+        setShowAchievement(true);
       }
-
-      const updatedStats: WeatherStats = { ...statsData };
-
-      // Update days checked
-      updatedStats.daysChecked += 1;
-
-      // Update condition counts
-      const condition = weatherData.current.condition;
-      if (condition.includes("Sunny") || condition.includes("Clear")) {
-        updatedStats.sunnyDays += 1;
-      } else if (condition.includes("Rain") || condition.includes("Drizzle")) {
-        updatedStats.rainyDays += 1;
-      }
-
-      if (weatherData.current.wind > 10) {
-        updatedStats.windyDays += 1;
-      }
-
-      // Update temperature records
-      const temp = weatherData.current.temp;
-      if (temp > updatedStats.highestTemp) {
-        updatedStats.highestTemp = temp;
-      }
-
-      if (temp < updatedStats.lowestTemp) {
-        updatedStats.lowestTemp = temp;
-      }
-
-      // Save updated stats
-      if (typeof window !== "undefined") {
-        localStorage.setItem("weatherStats", JSON.stringify(updatedStats));
-      }
-    }
-
-    // Show achievement if streak milestone reached
-    if (newStreak === 7) {
-      setAchievementType("streak-week");
-      setShowAchievement(true);
-    } else if (newStreak === 10) {
-      setAchievementType("streak");
-      setShowAchievement(true);
-    }
-
-    // Show achievement if points milestone reached
-    if (newPoints >= 300 && points < 300) {
-      setAchievementType("enthusiast");
-      setShowAchievement(true);
-    } else if (newPoints >= 400 && points < 400) {
-      setAchievementType("explorer");
-      setShowAchievement(true);
     }
   };
 
@@ -601,6 +545,7 @@ export default function WeatherDashboard() {
                   <WeatherAnimation
                     condition={weatherData.current.condition}
                     isDay={weatherData.current.isDay}
+                    weatherCode={weatherData.current.weatherCode}
                   />
                   <div className="absolute inset-0 flex flex-col justify-end p-6 bg-gradient-to-t from-black/30 to-transparent text-white">
                     <div className="flex justify-between items-end">
@@ -668,7 +613,10 @@ export default function WeatherDashboard() {
                   </div>
 
                   <WeatherForecast
-                    forecast={weatherData.forecast}
+                    forecast={weatherData.forecast.map(day => ({
+                      ...day,
+                      weatherCode: day.weatherCode || undefined
+                    }))}
                     tempUnit={tempUnit}
                     convertTemp={(temp) => getTemperatureInPreferredUnit(temp)}
                   />

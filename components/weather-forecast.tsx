@@ -7,6 +7,8 @@ interface ForecastDay {
   day: string;
   temp: number;
   condition: string;
+  weatherCode?: number; // Add weather code
+  precipitationProbability?: number; // Add precipitation probability
 }
 
 interface WeatherForecastProps {
@@ -20,20 +22,54 @@ export function WeatherForecast({
   tempUnit = "F",
   convertTemp = (t) => t,
 }: WeatherForecastProps) {
-  const getWeatherIcon = (condition: string) => {
+  const getWeatherIcon = (condition: string, weatherCode?: number) => {
+    if (weatherCode !== undefined) {
+      switch (Math.floor(weatherCode / 1000)) {
+        case 1: // Clear or Cloudy
+          return weatherCode === 1000 
+            ? <Sun className="h-6 w-6 text-yellow-500" />
+            : <Cloud className="h-6 w-6 text-slate-400" />;
+        case 2: // Fog
+          return <Cloud className="h-6 w-6 text-slate-500 opacity-80" />;
+        case 3: // Wind
+          return <Cloud className="h-6 w-6 text-slate-400" />;
+        case 4: // Rain
+          return <CloudRain className="h-6 w-6 text-blue-500" />;
+        case 5: // Snow
+          return <CloudSnow className="h-6 w-6 text-blue-300" />;
+        case 6: // Freezing Rain
+          return <CloudRain className="h-6 w-6 text-blue-400" />;
+        case 7: // Sleet
+          return <CloudSnow className="h-6 w-6 text-blue-400" />;
+        case 8: // Thunderstorm
+          return <CloudLightning className="h-6 w-6 text-purple-500" />;
+        default:
+          return <Sun className="h-6 w-6 text-yellow-500" />;
+      }
+    }
+    
     switch (condition) {
       case "Sunny":
+      case "Clear":
         return <Sun className="h-6 w-6 text-yellow-500" />;
       case "Partly Cloudy":
         return <Cloud className="h-6 w-6 text-slate-400" />;
       case "Cloudy":
         return <Cloud className="h-6 w-6 text-slate-500" />;
       case "Rainy":
+      case "Drizzle":
         return <CloudRain className="h-6 w-6 text-blue-500" />;
+      case "Thunderstorm":
       case "Stormy":
         return <CloudLightning className="h-6 w-6 text-purple-500" />;
       case "Snowy":
+      case "Freezing Rain":
+      case "Sleet":
         return <CloudSnow className="h-6 w-6 text-blue-300" />;
+      case "Foggy":
+        return <Cloud className="h-6 w-6 text-slate-500 opacity-80" />;
+      case "Windy":
+        return <Cloud className="h-6 w-6 text-slate-400" />;
       default:
         return <Sun className="h-6 w-6 text-yellow-500" />;
     }

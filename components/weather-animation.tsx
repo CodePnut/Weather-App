@@ -15,11 +15,13 @@ import {
 interface WeatherAnimationProps {
   condition: string;
   isDay?: boolean;
+  weatherCode?: number; // Add weather code for finer control
 }
 
 export function WeatherAnimation({
   condition,
   isDay = true,
+  weatherCode,
 }: WeatherAnimationProps) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
 
@@ -144,6 +146,56 @@ export function WeatherAnimation({
 
   // Background color based on weather condition and day/night
   const getBgColor = () => {
+    if (weatherCode !== undefined) {
+      // Night conditions
+      if (!isDay) {
+        if (weatherCode === 1000) { // Clear
+          return "from-indigo-900 to-slate-900";
+        } else if (weatherCode === 1100 || weatherCode === 1101 || weatherCode === 1102) { // Partly Cloudy
+          return "from-slate-900 to-indigo-900";
+        } else if (weatherCode === 1001) { // Cloudy
+          return "from-slate-800 to-slate-900";
+        } else if (weatherCode >= 4000 && weatherCode < 5000) { // Rain
+          return "from-slate-900 to-slate-800";
+        } else if (weatherCode >= 8000) { // Thunderstorm
+          return "from-slate-950 to-slate-900";
+        } else if (weatherCode >= 5000 && weatherCode < 7000) { // Snow
+          return "from-slate-800 to-slate-700";
+        } else if (weatherCode >= 2000 && weatherCode < 3000) { // Fog
+          return "from-slate-800 to-slate-700";
+        } else if (weatherCode >= 3000 && weatherCode < 4000) { // Wind
+          return "from-slate-900 to-indigo-900";
+        } else {
+          return "from-indigo-900 to-slate-900";
+        }
+      }
+
+      // Day conditions
+      if (weatherCode === 1000) { // Clear
+        return "from-blue-400 to-sky-300";
+      } else if (weatherCode === 1100 || weatherCode === 1101 || weatherCode === 1102) { // Partly Cloudy
+        return "from-blue-400 to-slate-300";
+      } else if (weatherCode === 1001) { // Cloudy
+        return "from-slate-400 to-slate-300";
+      } else if (weatherCode >= 4000 && weatherCode < 5000) { // Rain
+        return "from-slate-600 to-slate-500";
+      } else if (weatherCode >= 8000) { // Thunderstorm
+        return "from-slate-800 to-slate-700";
+      } else if (weatherCode >= 5000 && weatherCode < 6000) { // Snow
+        return "from-slate-300 to-blue-100";
+      } else if (weatherCode >= 6000 && weatherCode < 7000) { // Freezing Rain
+        return "from-slate-500 to-blue-200";
+      } else if (weatherCode >= 7000 && weatherCode < 8000) { // Sleet
+        return "from-slate-400 to-blue-200";
+      } else if (weatherCode >= 2000 && weatherCode < 3000) { // Fog
+        return "from-slate-400 to-slate-300";
+      } else if (weatherCode >= 3000 && weatherCode < 4000) { // Wind
+        return "from-blue-300 to-slate-300";
+      } else {
+        return "from-blue-400 to-sky-300";
+      }
+    }
+
     // Night conditions
     if (!isDay) {
       switch (condition) {
@@ -160,8 +212,13 @@ export function WeatherAnimation({
         case "Stormy":
           return "from-slate-950 to-slate-900";
         case "Snowy":
+        case "Freezing Rain":
+        case "Sleet":
+          return "from-slate-800 to-slate-700";
         case "Foggy":
           return "from-slate-800 to-slate-700";
+        case "Windy":
+          return "from-slate-900 to-indigo-900";
         default:
           return "from-indigo-900 to-slate-900";
       }
@@ -170,6 +227,7 @@ export function WeatherAnimation({
     // Day conditions
     switch (condition) {
       case "Sunny":
+      case "Clear":
         return "from-blue-400 to-sky-300";
       case "Partly Cloudy":
         return "from-blue-400 to-slate-300";
@@ -183,8 +241,14 @@ export function WeatherAnimation({
         return "from-slate-800 to-slate-700";
       case "Snowy":
         return "from-slate-300 to-blue-100";
+      case "Freezing Rain":
+        return "from-slate-500 to-blue-200";
+      case "Sleet":
+        return "from-slate-400 to-blue-200";
       case "Foggy":
         return "from-slate-400 to-slate-300";
+      case "Windy":
+        return "from-blue-300 to-slate-300";
       default:
         return "from-blue-400 to-sky-300";
     }

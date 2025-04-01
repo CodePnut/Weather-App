@@ -2,9 +2,10 @@
 
 import { cache } from "react";
 import { findCityByName, CityData } from "@/lib/cities-data";
+import { getConditionFromCode, getWeatherAttributes } from "@/lib/tomorrow-weather-codes";
 
 const API_KEY = process.env.NEXT_PUBLIC_WEATHER_API_KEY;
-const BASE_URL = process.env.NEXT_PUBLIC_WEATHER_API_BASE_URL;
+const BASE_URL = process.env.NEXT_PUBLIC_WEATHER_API_BASE_URL || "https://api.tomorrow.io/v4";
 
 // Maximum number of API retries
 const MAX_RETRIES = 2;
@@ -24,7 +25,7 @@ function isValidApiKey(): boolean {
 // Log message for missing API key
 function logApiKeyMissing() {
   console.warn(
-    "⚠️ OpenWeatherMap API key is missing or invalid. Using mock data instead. " +
+    "⚠️ Tomorrow.io API key is missing or invalid. Using mock data instead. " +
       "Set NEXT_PUBLIC_WEATHER_API_KEY in .env.local file to use actual weather data."
   );
 }
@@ -40,11 +41,18 @@ export interface WeatherData {
     uvIndex: number;
     lastUpdated: string;
     isDay: boolean;
+    weatherCode?: number; // Added for Tomorrow.io integration
+    precipitationProbability?: number; // Added for Tomorrow.io integration
+    precipitationIntensity?: number; // Added for Tomorrow.io integration
+    visibility?: number; // Added for Tomorrow.io integration
+    pressure?: number; // Added for Tomorrow.io integration
   };
   forecast: Array<{
     day: string;
     temp: number;
     condition: string;
+    weatherCode?: number; // Added for Tomorrow.io integration
+    precipitationProbability?: number; // Added for Tomorrow.io integration
   }>;
   coordinates?: {
     lat: number;
@@ -100,18 +108,6 @@ async function fetchWithRetry(
   }
 }
 
-// Utility function to convert weather condition codes to human-readable conditions with day/night awareness
-function getConditionFromCode(code: number, isDay: boolean): string {
-  // Weather condition codes: https://openweathermap.org/weather-conditions
-  if (code >= 200 && code < 300) return "Thunderstorm";
-  if (code >= 300 && code < 400) return "Drizzle";
-  if (code >= 500 && code < 600) return "Rainy";
-  if (code >= 600 && code < 700) return "Snowy";
-  if (code >= 700 && code < 800) return "Foggy";
-  if (code === 800) return isDay ? "Sunny" : "Clear Night";
-  if (code > 800) return isDay ? "Partly Cloudy" : "Partly Cloudy Night";
-  return "Unknown";
-}
 
 // Utility function to convert Celsius to Fahrenheit
 function celsiusToFahrenheit(celsius: number): number {
@@ -125,14 +121,11 @@ function getDayName(dateStr: string): string {
   return days[date.getDay()];
 }
 
-// Check if it's currently daytime at the location
 function isDaytime(
   sunriseTimestamp: number,
-  sunsetTimestamp: number,
-  timezone: number
+  sunsetTimestamp: number
 ): boolean {
-  // Get current time in the location's timezone
-  const now = Math.floor(Date.now() / 1000) + timezone;
+  const now = new Date().getTime();
   return now >= sunriseTimestamp && now < sunsetTimestamp;
 }
 
@@ -190,10 +183,25 @@ export async function getWeatherByCoordinates(
 
     // Use metric units (Celsius)
     const units = "metric" as const;
-
+    
+    const fields = [
+      "temperature", 
+      "temperatureApparent", 
+      "humidity", 
+      "windSpeed", 
+      "precipitationProbability",
+      "precipitationIntensity",
+      "weatherCode", 
+      "uvIndex", 
+      "visibility",
+      "pressureSurfaceLevel",
+      "sunriseTime",
+      "sunsetTime"
+    ].join(",");
+    
     // Fetch current weather with improved no-cache approach
     const currentUrl = addNoCacheParam(
-      `${BASE_URL}/weather?lat=${lat}&lon=${lon}&units=${units}&appid=${API_KEY}`
+      `${BASE_URL}/timelines?location=${lat},${lon}&fields=${fields}&timesteps=current&units=${units}&apikey=${API_KEY}`
     );
 
     console.log("Fetching current weather data from:", currentUrl);
@@ -208,58 +216,31 @@ export async function getWeatherByCoordinates(
     }
 
     const currentData = await currentRes.json();
-    console.log("Current weather fetched for coordinates:", currentData.name);
-
-    // Fetch UV data using OneCall API (if available) or estimate from weather data
-    let uvIndex = 0;
+    console.log("Current weather fetched for coordinates");
+    
+    const currentValues = currentData.data.timelines[0].intervals[0].values;
+    const currentTime = currentData.data.timelines[0].intervals[0].startTime;
+    
+    let locationName = `${lat.toFixed(2)}, ${lon.toFixed(2)}`;
     try {
-      const oneCallUrl = addNoCacheParam(
-        `${BASE_URL}/onecall?lat=${lat}&lon=${lon}&exclude=minutely,hourly,daily,alerts&units=${units}&appid=${API_KEY}`
-      );
-
-      console.log("Fetching one call API data from:", oneCallUrl);
-      const oneCallRes = await fetchWithRetry(oneCallUrl);
-
-      if (oneCallRes.ok) {
-        const oneCallData = await oneCallRes.json();
-        uvIndex =
-          oneCallData.current.uvi ||
-          Math.min(Math.round(currentData.clouds.all / 10), 11);
-        console.log("UV data fetched successfully:", uvIndex);
-      } else {
-        console.warn("One call API failed, estimating UV index");
-        // Fallback: Estimate UV index based on clouds and time of day
-        const cloudCoverage = currentData.clouds?.all || 0;
-        const isDay = isDaytime(
-          currentData.sys.sunrise,
-          currentData.sys.sunset,
-          currentData.timezone
-        );
-
-        // Lower cloud coverage = higher UV, but only during day
-        if (isDay) {
-          uvIndex = Math.max(
-            0,
-            Math.min(11, Math.round((100 - cloudCoverage) / 10))
-          );
-        } else {
-          uvIndex = 0; // No UV at night
-        }
-        console.log("Estimated UV index:", uvIndex);
+      const geocodeUrl = `https://api.bigdatacloud.net/data/reverse-geocode-client?latitude=${lat}&longitude=${lon}&localityLanguage=en`;
+      const geocodeRes = await fetch(geocodeUrl);
+      if (geocodeRes.ok) {
+        const geocodeData = await geocodeRes.json();
+        locationName = geocodeData.city || geocodeData.locality || locationName;
       }
     } catch (error) {
-      console.error("Error fetching UV data:", error);
-      // Fallback UV calculation
-      uvIndex = Math.min(
-        Math.round((100 - (currentData.clouds?.all || 0)) / 10),
-        11
-      );
-      console.log("Fallback UV calculation:", uvIndex);
+      console.error("Error getting location name:", error);
     }
 
-    // Fetch 7-day forecast
+    const forecastFields = [
+      "temperature",
+      "weatherCode",
+      "precipitationProbability"
+    ].join(",");
+    
     const forecastUrl = addNoCacheParam(
-      `${BASE_URL}/forecast?lat=${lat}&lon=${lon}&units=${units}&appid=${API_KEY}`
+      `${BASE_URL}/timelines?location=${lat},${lon}&fields=${forecastFields}&timesteps=1d&startTime=now&endTime=${encodeURIComponent(new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString())}&units=${units}&apikey=${API_KEY}`
     );
 
     console.log("Fetching forecast data from:", forecastUrl);
@@ -274,22 +255,23 @@ export async function getWeatherByCoordinates(
     console.log("Forecast data fetched successfully");
 
     // Determine if it's daytime based on sunrise/sunset
-    const isDay = isDaytime(
-      currentData.sys.sunrise,
-      currentData.sys.sunset,
-      currentData.timezone
-    );
+    const sunriseTime = new Date(currentValues.sunriseTime).getTime();
+    const sunsetTime = new Date(currentValues.sunsetTime).getTime();
+    const isDay = isDaytime(sunriseTime, sunsetTime);
     console.log("Is daytime:", isDay);
 
-    // Process forecast data - filter to get one entry per day
-    const processedForecast = forecastData.list
-      .filter((item: any, index: number) => index % 8 === 0) // One entry per day (3-hour intervals, 8 entries per day)
+    const processedForecast = forecastData.data.timelines[0].intervals
       .slice(0, 7) // Only take 7 days
-      .map((item: any) => ({
-        day: getDayName(item.dt_txt),
-        temp: Math.round(item.main.temp),
-        condition: getConditionFromCode(item.weather[0].id, true), // Assume daytime for forecasts
-      }));
+      .map((item: any) => {
+        const date = new Date(item.startTime);
+        return {
+          day: getDayName(item.startTime),
+          temp: Math.round(item.values.temperature),
+          condition: getConditionFromCode(item.values.weatherCode, true), // Assume daytime for forecasts
+          weatherCode: item.values.weatherCode,
+          precipitationProbability: item.values.precipitationProbability
+        };
+      });
 
     // Get current local time
     const timestamp = new Date().toLocaleTimeString("en-US", {
@@ -298,25 +280,28 @@ export async function getWeatherByCoordinates(
       hour12: true,
     });
 
-    // Ensure wind speed is in m/s for metric
-    const windSpeed = currentData.wind.speed;
-    const windSpeedFormatted = Math.round(windSpeed); // Already in m/s for metric
+    const windSpeedFormatted = Math.round(currentValues.windSpeed);
 
     const result: WeatherData = {
-      location: currentData.name,
+      location: locationName,
       current: {
-        temp: Math.round(currentData.main.temp),
-        condition: getConditionFromCode(currentData.weather[0].id, isDay),
-        humidity: currentData.main.humidity, // Already accurate from API
+        temp: Math.round(currentValues.temperature),
+        condition: getConditionFromCode(currentValues.weatherCode, isDay),
+        humidity: Math.round(currentValues.humidity),
         wind: windSpeedFormatted,
-        feelsLike: Math.round(currentData.main.feels_like),
-        uvIndex: uvIndex,
+        feelsLike: Math.round(currentValues.temperatureApparent),
+        uvIndex: Math.round(currentValues.uvIndex),
         lastUpdated: timestamp,
         isDay: isDay,
+        weatherCode: currentValues.weatherCode,
+        precipitationProbability: currentValues.precipitationProbability,
+        precipitationIntensity: currentValues.precipitationIntensity,
+        visibility: currentValues.visibility,
+        pressure: currentValues.pressureSurfaceLevel
       },
       forecast: processedForecast,
       coordinates: { lat, lon },
-      timezone: currentData.timezone,
+      timezone: 0, // Tomorrow.io uses UTC timestamps
       units: units,
     };
 
@@ -348,165 +333,44 @@ export async function getWeatherByCityName(
       return await getWeatherByCoordinates(cityData.lat, cityData.lon);
     }
 
-    console.log("City not found in database, using API city search");
+    console.log("City not found in database, using geocoding search");
     // Check for valid API key
     if (!isValidApiKey()) {
       logApiKeyMissing();
       return getMockWeatherData(null, null, cityName);
     }
 
-    // Use provided city
-    const searchCity = cityName;
-
-    // Continue with the existing city name lookup logic
-    // Use metric units (Celsius)
-    const units = "metric" as const;
-
-    // Fetch current weather with improved no-cache approach
-    const currentUrl = addNoCacheParam(
-      `${BASE_URL}/weather?q=${searchCity}&units=${units}&appid=${API_KEY}`
-    );
-
-    console.log("Fetching current weather by city from:", currentUrl);
-    const currentRes = await fetchWithRetry(currentUrl);
-
-    if (!currentRes.ok) {
-      console.error(
-        "Failed to fetch current weather by city:",
-        await currentRes.text()
-      );
-      throw new Error(
-        `Failed to fetch current weather by city: ${currentRes.status}`
-      );
-    }
-
-    const currentData = await currentRes.json();
-    console.log("Current weather fetched for city:", currentData.name);
-
-    // Fetch UV data using OneCall API (if available) or estimate from weather data
-    let uvIndex = 0;
+    const searchCity = encodeURIComponent(cityName);
+    
     try {
-      const { lat, lon } = currentData.coord;
-      const oneCallUrl = addNoCacheParam(
-        `${BASE_URL}/onecall?lat=${lat}&lon=${lon}&exclude=minutely,hourly,daily,alerts&units=${units}&appid=${API_KEY}`
-      );
-
-      console.log("Fetching one call API data for city from:", oneCallUrl);
-      const oneCallRes = await fetchWithRetry(oneCallUrl);
-
-      if (oneCallRes.ok) {
-        const oneCallData = await oneCallRes.json();
-        uvIndex =
-          oneCallData.current.uvi ||
-          Math.min(Math.round(currentData.clouds.all / 10), 11);
-        console.log("UV data fetched successfully for city:", uvIndex);
-      } else {
-        console.warn("One call API failed for city, estimating UV index");
-        // Fallback: Estimate UV index based on clouds and time of day
-        const cloudCoverage = currentData.clouds?.all || 0;
-        const isDay = isDaytime(
-          currentData.sys.sunrise,
-          currentData.sys.sunset,
-          currentData.timezone
-        );
-
-        // Lower cloud coverage = higher UV, but only during day
-        if (isDay) {
-          uvIndex = Math.max(
-            0,
-            Math.min(11, Math.round((100 - cloudCoverage) / 10))
-          );
-        } else {
-          uvIndex = 0; // No UV at night
+      const geocodeUrl = `https://nominatim.openstreetmap.org/search?q=${searchCity}&format=json&limit=1`;
+      console.log("Geocoding city:", geocodeUrl);
+      
+      const geocodeRes = await fetch(geocodeUrl, {
+        headers: {
+          "User-Agent": "Weather-App/1.0"
         }
-        console.log("Estimated UV index for city:", uvIndex);
+      });
+      
+      if (!geocodeRes.ok) {
+        throw new Error(`Geocoding failed: ${geocodeRes.status}`);
+      }
+      
+      const geocodeData = await geocodeRes.json();
+      
+      if (geocodeData && geocodeData.length > 0) {
+        const { lat, lon } = geocodeData[0];
+        console.log(`City "${cityName}" geocoded to coordinates:`, lat, lon);
+        
+        return await getWeatherByCoordinates(parseFloat(lat), parseFloat(lon));
+      } else {
+        console.error("City not found in geocoding service");
+        return getMockWeatherData(null, null, cityName);
       }
     } catch (error) {
-      console.error("Error fetching UV data for city:", error);
-      // Fallback UV calculation
-      uvIndex = Math.min(
-        Math.round((100 - (currentData.clouds?.all || 0)) / 10),
-        11
-      );
-      console.log("Fallback UV calculation for city:", uvIndex);
+      console.error("Error geocoding city:", error);
+      return getMockWeatherData(null, null, cityName);
     }
-
-    // Fetch 7-day forecast
-    const forecastUrl = addNoCacheParam(
-      `${BASE_URL}/forecast?q=${searchCity}&units=${units}&appid=${API_KEY}`
-    );
-
-    console.log("Fetching forecast data for city from:", forecastUrl);
-    const forecastRes = await fetchWithRetry(forecastUrl);
-
-    if (!forecastRes.ok) {
-      console.error(
-        "Failed to fetch forecast for city:",
-        await forecastRes.text()
-      );
-      throw new Error(
-        `Failed to fetch forecast for city: ${forecastRes.status}`
-      );
-    }
-
-    const forecastData = await forecastRes.json();
-    console.log("Forecast data fetched successfully for city");
-
-    // Determine if it's daytime based on sunrise/sunset
-    const isDay = isDaytime(
-      currentData.sys.sunrise,
-      currentData.sys.sunset,
-      currentData.timezone
-    );
-    console.log("Is daytime for city:", isDay);
-
-    // Process forecast data - filter to get one entry per day
-    const processedForecast = forecastData.list
-      .filter((item: any, index: number) => index % 8 === 0) // One entry per day (3-hour intervals, 8 entries per day)
-      .slice(0, 7) // Only take 7 days
-      .map((item: any) => ({
-        day: getDayName(item.dt_txt),
-        temp: Math.round(item.main.temp),
-        condition: getConditionFromCode(item.weather[0].id, true), // Assume daytime for forecasts
-      }));
-
-    // Get current local time
-    const timestamp = new Date().toLocaleTimeString("en-US", {
-      hour: "numeric",
-      minute: "2-digit",
-      hour12: true,
-    });
-
-    // Ensure wind speed is in m/s for metric
-    const windSpeed = currentData.wind.speed;
-    const windSpeedFormatted = Math.round(windSpeed); // Already in m/s for metric
-
-    const result: WeatherData = {
-      location: currentData.name,
-      current: {
-        temp: Math.round(currentData.main.temp),
-        condition: getConditionFromCode(currentData.weather[0].id, isDay),
-        humidity: currentData.main.humidity, // Already accurate from API
-        wind: windSpeedFormatted,
-        feelsLike: Math.round(currentData.main.feels_like),
-        uvIndex: uvIndex,
-        lastUpdated: timestamp,
-        isDay: isDay,
-      },
-      forecast: processedForecast,
-      coordinates: {
-        lat: currentData.coord.lat,
-        lon: currentData.coord.lon,
-      },
-      timezone: currentData.timezone,
-      units: units,
-    };
-
-    console.log(
-      "Weather data for city constructed successfully:",
-      result.location
-    );
-    return result;
   } catch (error) {
     console.error("Error fetching weather data by city:", error);
     return getMockWeatherData(null, null, cityName);
@@ -562,7 +426,7 @@ function getMockWeatherData(
   // Choose an appropriate location name
   let location = "Demo Location";
   let coordinates = { lat: 1.3521, lon: 103.8198 }; // Singapore coordinates by default
-  let timezone = 28800; // UTC+8 (Singapore timezone)
+  let timezone = 0; // UTC timezone (Tomorrow.io uses UTC)
 
   // Use provided coordinates if available
   if (lat !== null && lon !== null && lat !== undefined && lon !== undefined) {
@@ -592,31 +456,38 @@ function getMockWeatherData(
   const uvVariation = isDay ? Math.floor(Math.random() * 3) - 1 : 0; // -1 to +1 variation during day
   const currentUV = Math.max(0, Math.min(11, uvBase + uvVariation)); // Ensure within 0-11 range
 
-  // Generate forecast with varying temperatures and conditions
-  const weatherConditions = [
-    "Sunny",
-    "Partly Cloudy",
-    "Cloudy",
-    "Rainy",
-    "Thunderstorm",
+  const weatherCodes = [
+    { code: 1000, condition: "Sunny" },
+    { code: 1100, condition: "Partly Cloudy" },
+    { code: 1001, condition: "Cloudy" },
+    { code: 4000, condition: "Drizzle" },
+    { code: 4001, condition: "Rainy" },
+    { code: 8000, condition: "Thunderstorm" },
+    { code: 5000, condition: "Snowy" },
+    { code: 2000, condition: "Foggy" },
   ];
+  
+  // Generate forecast with varying temperatures and conditions
   const forecast = [];
   const days = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"];
 
   // Get current day to start forecast from
   const today = new Date().getDay(); // 0 = Sunday, 1 = Monday, etc.
 
+  const currentWeatherCode = isDay ? 1000 : 1000;
+
   for (let i = 0; i < 7; i++) {
     const dayIndex = (today + i) % 7;
     const randomTemp = tempBase + Math.floor(Math.random() * 7) - 3; // -3 to +3 from base
-    const randomConditionIndex = Math.floor(
-      Math.random() * weatherConditions.length
-    );
-
+    const randomWeatherIndex = Math.floor(Math.random() * weatherCodes.length);
+    const weatherCode = weatherCodes[randomWeatherIndex];
+    
     forecast.push({
       day: days[dayIndex],
       temp: randomTemp,
-      condition: weatherConditions[randomConditionIndex],
+      condition: weatherCode.condition,
+      weatherCode: weatherCode.code,
+      precipitationProbability: Math.floor(Math.random() * 100)
     });
   }
 
@@ -633,6 +504,11 @@ function getMockWeatherData(
       uvIndex: currentUV,
       lastUpdated: timestamp,
       isDay: isDay,
+      weatherCode: currentWeatherCode,
+      precipitationProbability: Math.floor(Math.random() * 30), // Lower for sunny weather
+      precipitationIntensity: 0.1,
+      visibility: 10,
+      pressure: 1013
     },
     forecast,
     coordinates,
