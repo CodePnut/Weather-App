@@ -7,7 +7,9 @@ const nextConfig = {
   // Ensures we can use the latest React features
   experimental: {
     // Enable App Router features
-    serverActions: true,
+    serverActions: {
+      allowedOrigins: ["localhost:3000"],
+    },
   },
 };
 
