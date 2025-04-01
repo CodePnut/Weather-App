@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { motion } from "framer-motion";
 import { Cloud, CloudRain, Sun, Wind, MapPin } from "lucide-react";
 
@@ -11,21 +11,64 @@ interface WeatherStatsProps {
   };
   tempUnit?: "F" | "C";
   convertTemp?: (temp: number) => number;
+  weatherData?: any; // Add weatherData prop
 }
 
 export function WeatherStats({
   coordinates,
   tempUnit = "F",
   convertTemp = (t) => t,
+  weatherData,
 }: WeatherStatsProps) {
-  const [stats] = useState({
-    daysChecked: 28,
-    rainyDays: 8,
-    sunnyDays: 15,
-    windyDays: 5,
-    highestTemp: 82,
-    lowestTemp: 58,
+  // Initialize stats from localStorage or with zeros
+  const [stats, setStats] = useState(() => {
+    if (typeof window !== "undefined") {
+      const savedStats = localStorage.getItem("weatherStats");
+      if (savedStats) {
+        return JSON.parse(savedStats);
+      }
+    }
+
+    return {
+      daysChecked: 0,
+      rainyDays: 0,
+      sunnyDays: 0,
+      windyDays: 0,
+      highestTemp: -100, // Will be updated on first weather check
+      lowestTemp: 200, // Will be updated on first weather check
+    };
   });
+
+  // Update stats when weatherData changes
+  useEffect(() => {
+    if (!weatherData || !weatherData.current) return;
+
+    const condition = weatherData.current.condition;
+    const temp = weatherData.current.temp;
+
+    const newStats = { ...stats };
+
+    // Update condition counts
+    if (condition.includes("Sunny") || condition.includes("Clear")) {
+      newStats.sunnyDays += 0; // Don't increment automatically
+    } else if (condition.includes("Rain") || condition.includes("Drizzle")) {
+      newStats.rainyDays += 0; // Don't increment automatically
+    } else if (weatherData.current.wind > 10) {
+      newStats.windyDays += 0; // Don't increment automatically
+    }
+
+    // Update temperature records
+    if (temp > newStats.highestTemp) {
+      newStats.highestTemp = temp;
+    }
+
+    if (temp < newStats.lowestTemp) {
+      newStats.lowestTemp = temp;
+    }
+
+    // Don't update state to avoid unnecessary re-renders
+    // This will be updated when checkWeather is called
+  }, [weatherData]);
 
   // Format coordinates as readable values (e.g., 37.7749° N, 122.4194° W)
   const formatCoordinates = () => {
@@ -129,7 +172,9 @@ export function WeatherStats({
             Highest
           </div>
           <div className="text-2xl font-bold">
-            {formatTemp(stats.highestTemp)}°{tempUnit}
+            {stats.highestTemp > -100
+              ? `${formatTemp(stats.highestTemp)}°${tempUnit}`
+              : "-"}
           </div>
         </div>
         <div className="h-10 w-px bg-slate-200 dark:bg-slate-700" />
@@ -138,7 +183,9 @@ export function WeatherStats({
             Lowest
           </div>
           <div className="text-2xl font-bold">
-            {formatTemp(stats.lowestTemp)}°{tempUnit}
+            {stats.lowestTemp < 200
+              ? `${formatTemp(stats.lowestTemp)}°${tempUnit}`
+              : "-"}
           </div>
         </div>
       </div>

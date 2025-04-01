@@ -25,6 +25,7 @@ export interface WeatherData {
     lon: number;
   };
   timezone?: number;
+  units: "metric" | "imperial";
 }
 
 // Utility function to convert weather condition codes to human-readable conditions with day/night awareness
@@ -38,6 +39,11 @@ function getConditionFromCode(code: number, isDay: boolean): string {
   if (code === 800) return isDay ? "Sunny" : "Clear Night";
   if (code > 800) return isDay ? "Partly Cloudy" : "Partly Cloudy Night";
   return "Unknown";
+}
+
+// Utility function to convert Celsius to Fahrenheit
+function celsiusToFahrenheit(celsius: number): number {
+  return Math.round((celsius * 9) / 5 + 32);
 }
 
 // Get day name from date
@@ -100,16 +106,19 @@ export async function getWeatherByCoordinates(
       return getMockWeatherData();
     }
 
+    // Use metric units (Celsius)
+    const units = "metric";
+
     // Fetch current weather
     const currentRes = await fetch(
-      `${BASE_URL}/weather?lat=${lat}&lon=${lon}&units=imperial&appid=${API_KEY}`
+      `${BASE_URL}/weather?lat=${lat}&lon=${lon}&units=${units}&appid=${API_KEY}`
     );
     if (!currentRes.ok) throw new Error("Failed to fetch current weather");
     const currentData = await currentRes.json();
 
     // Fetch 7-day forecast
     const forecastRes = await fetch(
-      `${BASE_URL}/forecast?lat=${lat}&lon=${lon}&units=imperial&appid=${API_KEY}`
+      `${BASE_URL}/forecast?lat=${lat}&lon=${lon}&units=${units}&appid=${API_KEY}`
     );
     if (!forecastRes.ok) throw new Error("Failed to fetch forecast");
     const forecastData = await forecastRes.json();
@@ -153,6 +162,7 @@ export async function getWeatherByCoordinates(
       forecast: processedForecast,
       coordinates: { lat, lon },
       timezone: currentData.timezone,
+      units: "metric",
     };
   } catch (error) {
     console.error("Error fetching weather data:", error);
@@ -181,16 +191,19 @@ export const getWeatherData = cache(
       // Use provided city or default to San Francisco
       const searchCity = city || "San Francisco";
 
+      // Use metric units (Celsius)
+      const units = "metric";
+
       // Fetch current weather
       const currentRes = await fetch(
-        `${BASE_URL}/weather?q=${searchCity}&units=imperial&appid=${API_KEY}`
+        `${BASE_URL}/weather?q=${searchCity}&units=${units}&appid=${API_KEY}`
       );
       if (!currentRes.ok) throw new Error("Failed to fetch current weather");
       const currentData = await currentRes.json();
 
       // Fetch 7-day forecast
       const forecastRes = await fetch(
-        `${BASE_URL}/forecast?q=${searchCity}&units=imperial&appid=${API_KEY}`
+        `${BASE_URL}/forecast?q=${searchCity}&units=${units}&appid=${API_KEY}`
       );
       if (!forecastRes.ok) throw new Error("Failed to fetch forecast");
       const forecastData = await forecastRes.json();
@@ -237,6 +250,7 @@ export const getWeatherData = cache(
           lon: currentData.coord.lon,
         },
         timezone: currentData.timezone,
+        units: "metric",
       };
     } catch (error) {
       console.error("Error fetching weather data:", error);
@@ -261,28 +275,29 @@ function getMockWeatherData(): WeatherData {
   return {
     location: "Your Location",
     current: {
-      temp: 72,
+      temp: 27, // Singapore's average temperature in Celsius
       condition: isDay ? "Sunny" : "Clear Night",
-      humidity: 45,
+      humidity: 75, // Singapore's typically high humidity
       wind: 8,
-      feelsLike: 74,
-      uvIndex: isDay ? 6 : 0,
+      feelsLike: 30, // With high humidity, feels hotter
+      uvIndex: isDay ? 8 : 0, // High UV index in Singapore during the day
       lastUpdated: timestamp,
       isDay: isDay,
     },
     forecast: [
-      { day: "Mon", temp: 72, condition: "Sunny" },
-      { day: "Tue", temp: 68, condition: "Partly Cloudy" },
-      { day: "Wed", temp: 70, condition: "Cloudy" },
-      { day: "Thu", temp: 65, condition: "Rainy" },
-      { day: "Fri", temp: 69, condition: "Partly Cloudy" },
-      { day: "Sat", temp: 74, condition: "Sunny" },
-      { day: "Sun", temp: 76, condition: "Sunny" },
+      { day: "Mon", temp: 28, condition: "Sunny" },
+      { day: "Tue", temp: 27, condition: "Partly Cloudy" },
+      { day: "Wed", temp: 27, condition: "Rainy" },
+      { day: "Thu", temp: 26, condition: "Rainy" },
+      { day: "Fri", temp: 27, condition: "Partly Cloudy" },
+      { day: "Sat", temp: 28, condition: "Sunny" },
+      { day: "Sun", temp: 29, condition: "Sunny" },
     ],
     coordinates: {
-      lat: 37.7749,
-      lon: -122.4194,
+      lat: 1.3521, // Singapore coordinates
+      lon: 103.8198,
     },
-    timezone: 0,
+    timezone: 28800, // UTC+8 (Singapore timezone)
+    units: "metric",
   };
 }

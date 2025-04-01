@@ -39,13 +39,35 @@ export default function WeatherDashboard() {
   const [searchInput, setSearchInput] = useState("");
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
-  const [streak, setStreak] = useState(7);
-  const [points, setPoints] = useState(350);
+  const [streak, setStreak] = useState(() => {
+    // Load streak from localStorage or start at 0
+    if (typeof window !== "undefined") {
+      const savedStreak = localStorage.getItem("weatherStreak");
+      return savedStreak ? parseInt(savedStreak, 10) : 0;
+    }
+    return 0;
+  });
+  const [points, setPoints] = useState(() => {
+    // Load points from localStorage or start at 0
+    if (typeof window !== "undefined") {
+      const savedPoints = localStorage.getItem("weatherPoints");
+      return savedPoints ? parseInt(savedPoints, 10) : 0;
+    }
+    return 0;
+  });
   const [showAchievement, setShowAchievement] = useState(false);
   const [achievementType, setAchievementType] = useState("");
   const [isRefreshing, setIsRefreshing] = useState(false);
   const [tempUnit, setTempUnit] = useState<"F" | "C">("F");
   const { theme, setTheme } = useTheme();
+
+  // Save streak and points to localStorage when they change
+  useEffect(() => {
+    if (typeof window !== "undefined") {
+      localStorage.setItem("weatherStreak", streak.toString());
+      localStorage.setItem("weatherPoints", points.toString());
+    }
+  }, [streak, points]);
 
   // Load saved temperature unit preference from localStorage
   useEffect(() => {
@@ -155,12 +177,96 @@ export default function WeatherDashboard() {
 
   // Simulate checking weather and earning points
   const checkWeather = () => {
-    setPoints((prev) => prev + 25);
-    setStreak((prev) => prev + 1);
+    // Add points
+    const newPoints = points + 25;
+    setPoints(newPoints);
+
+    // Increment streak
+    const newStreak = streak + 1;
+    setStreak(newStreak);
+
+    // Update weather stats
+    if (weatherData) {
+      // Get current stats
+      interface WeatherStats {
+        daysChecked: number;
+        rainyDays: number;
+        sunnyDays: number;
+        windyDays: number;
+        highestTemp: number;
+        lowestTemp: number;
+      }
+
+      const defaultStats: WeatherStats = {
+        daysChecked: 0,
+        rainyDays: 0,
+        sunnyDays: 0,
+        windyDays: 0,
+        highestTemp: -100,
+        lowestTemp: 200,
+      };
+
+      let statsData: WeatherStats = defaultStats;
+
+      if (typeof window !== "undefined") {
+        const savedStats = localStorage.getItem("weatherStats");
+        if (savedStats) {
+          try {
+            statsData = JSON.parse(savedStats) as WeatherStats;
+          } catch (e) {
+            console.error("Error parsing saved stats:", e);
+          }
+        }
+      }
+
+      const updatedStats: WeatherStats = { ...statsData };
+
+      // Update days checked
+      updatedStats.daysChecked += 1;
+
+      // Update condition counts
+      const condition = weatherData.current.condition;
+      if (condition.includes("Sunny") || condition.includes("Clear")) {
+        updatedStats.sunnyDays += 1;
+      } else if (condition.includes("Rain") || condition.includes("Drizzle")) {
+        updatedStats.rainyDays += 1;
+      }
+
+      if (weatherData.current.wind > 10) {
+        updatedStats.windyDays += 1;
+      }
+
+      // Update temperature records
+      const temp = weatherData.current.temp;
+      if (temp > updatedStats.highestTemp) {
+        updatedStats.highestTemp = temp;
+      }
+
+      if (temp < updatedStats.lowestTemp) {
+        updatedStats.lowestTemp = temp;
+      }
+
+      // Save updated stats
+      if (typeof window !== "undefined") {
+        localStorage.setItem("weatherStats", JSON.stringify(updatedStats));
+      }
+    }
 
     // Show achievement if streak milestone reached
-    if (streak + 1 === 10) {
+    if (newStreak === 7) {
+      setAchievementType("streak-week");
+      setShowAchievement(true);
+    } else if (newStreak === 10) {
       setAchievementType("streak");
+      setShowAchievement(true);
+    }
+
+    // Show achievement if points milestone reached
+    if (newPoints >= 300 && points < 300) {
+      setAchievementType("enthusiast");
+      setShowAchievement(true);
+    } else if (newPoints >= 400 && points < 400) {
+      setAchievementType("explorer");
       setShowAchievement(true);
     }
   };
@@ -176,9 +282,30 @@ export default function WeatherDashboard() {
     }
   };
 
+  // Function to convert Celsius to Fahrenheit
+  const convertToFahrenheit = (temp: number) => {
+    return Math.round((temp * 9) / 5 + 32);
+  };
+
   // Function to convert Fahrenheit to Celsius
   const convertToCelsius = (temp: number) => {
     return Math.round(((temp - 32) * 5) / 9);
+  };
+
+  // Get temperature with the user's preferred unit
+  const getTemperatureInPreferredUnit = (temp: number) => {
+    // If API units are metric (Celsius) and user wants Fahrenheit
+    if (weatherData?.units === "metric" && tempUnit === "F") {
+      return convertToFahrenheit(temp);
+    }
+    // If API units are imperial (Fahrenheit) and user wants Celsius
+    else if (weatherData?.units === "imperial" && tempUnit === "C") {
+      return convertToCelsius(temp);
+    }
+    // Units already match user preference
+    else {
+      return temp;
+    }
   };
 
   // Toggle temperature unit and save preference
@@ -352,16 +479,16 @@ export default function WeatherDashboard() {
                       </div>
                       <div className="text-right">
                         <div className="text-6xl font-bold">
-                          {tempUnit === "F"
-                            ? weatherData.current.temp
-                            : convertToCelsius(weatherData.current.temp)}
+                          {getTemperatureInPreferredUnit(
+                            weatherData.current.temp
+                          )}
                           °{tempUnit}
                         </div>
                         <p className="text-lg opacity-90">
                           Feels like{" "}
-                          {tempUnit === "F"
-                            ? weatherData.current.feelsLike
-                            : convertToCelsius(weatherData.current.feelsLike)}
+                          {getTemperatureInPreferredUnit(
+                            weatherData.current.feelsLike
+                          )}
                           °{tempUnit}
                         </p>
                       </div>
@@ -403,7 +530,7 @@ export default function WeatherDashboard() {
                   <WeatherForecast
                     forecast={weatherData.forecast}
                     tempUnit={tempUnit}
-                    convertTemp={convertToCelsius}
+                    convertTemp={(temp) => getTemperatureInPreferredUnit(temp)}
                   />
 
                   <div className="mt-6">
@@ -439,7 +566,10 @@ export default function WeatherDashboard() {
                     <WeatherStats
                       coordinates={weatherData.coordinates}
                       tempUnit={tempUnit}
-                      convertTemp={convertToCelsius}
+                      convertTemp={(temp) =>
+                        getTemperatureInPreferredUnit(temp)
+                      }
+                      weatherData={weatherData}
                     />
 
                     <div className="mt-6">
