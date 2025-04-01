@@ -11,6 +11,9 @@ import {
   Zap,
   Flame,
   Search,
+  MapPin,
+  RefreshCw,
+  Clock,
 } from "lucide-react";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -23,11 +26,16 @@ import { WeatherForecast } from "@/components/weather-forecast";
 import { AchievementModal } from "@/components/achievement-modal";
 import { WeatherStats } from "@/components/weather-stats";
 import { useTheme } from "next-themes";
-import { getWeatherData, type WeatherData } from "@/lib/weather-service";
+import {
+  getWeatherData,
+  getUserLocation,
+  getWeatherByCoordinates,
+  type WeatherData,
+} from "@/lib/weather-service";
 
 export default function WeatherDashboard() {
   const [weatherData, setWeatherData] = useState<WeatherData | null>(null);
-  const [city, setCity] = useState("San Francisco");
+  const [city, setCity] = useState<string | undefined>(undefined);
   const [searchInput, setSearchInput] = useState("");
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
@@ -35,9 +43,21 @@ export default function WeatherDashboard() {
   const [points, setPoints] = useState(350);
   const [showAchievement, setShowAchievement] = useState(false);
   const [achievementType, setAchievementType] = useState("");
+  const [isRefreshing, setIsRefreshing] = useState(false);
+  const [tempUnit, setTempUnit] = useState<"F" | "C">("F");
   const { theme, setTheme } = useTheme();
 
-  // Fetch weather data
+  // Load saved temperature unit preference from localStorage
+  useEffect(() => {
+    if (typeof window !== "undefined") {
+      const savedUnit = localStorage.getItem("tempUnit") as "F" | "C" | null;
+      if (savedUnit) {
+        setTempUnit(savedUnit);
+      }
+    }
+  }, []);
+
+  // Fetch weather data initially - will use geolocation if available
   useEffect(() => {
     async function fetchData() {
       try {
@@ -55,6 +75,73 @@ export default function WeatherDashboard() {
 
     fetchData();
   }, [city]);
+
+  // Handle manual refresh
+  const refreshWeather = async () => {
+    try {
+      setIsRefreshing(true);
+
+      // Try to get fresh location data if no city is specified
+      if (!city) {
+        const coordinates = await getUserLocation();
+        if (coordinates) {
+          const data = await getWeatherByCoordinates(
+            coordinates.lat,
+            coordinates.lon
+          );
+          setWeatherData(data);
+
+          // Give points for refreshing
+          setPoints((prev) => prev + 5);
+          return;
+        }
+      }
+
+      // Fallback to city-based search
+      const data = await getWeatherData(city);
+      setWeatherData(data);
+
+      // Give points for refreshing
+      setPoints((prev) => prev + 5);
+    } catch (err) {
+      setError("Failed to refresh weather data.");
+      console.error(err);
+    } finally {
+      setIsRefreshing(false);
+    }
+  };
+
+  // Handle using current location
+  const useCurrentLocation = async () => {
+    try {
+      setLoading(true);
+      setError("");
+
+      const coordinates = await getUserLocation();
+      if (!coordinates) {
+        setError(
+          "Could not get your location. Please check your location permissions."
+        );
+        return;
+      }
+
+      // Clear city to use coordinates
+      setCity(undefined);
+      const data = await getWeatherByCoordinates(
+        coordinates.lat,
+        coordinates.lon
+      );
+      setWeatherData(data);
+
+      // Reward for using location
+      setPoints((prev) => prev + 10);
+    } catch (err) {
+      setError("Failed to get your location. Please try again.");
+      console.error(err);
+    } finally {
+      setLoading(false);
+    }
+  };
 
   // Handle search
   const handleSearch = (e: React.FormEvent) => {
@@ -89,6 +176,25 @@ export default function WeatherDashboard() {
     }
   };
 
+  // Function to convert Fahrenheit to Celsius
+  const convertToCelsius = (temp: number) => {
+    return Math.round(((temp - 32) * 5) / 9);
+  };
+
+  // Toggle temperature unit and save preference
+  const toggleTempUnit = () => {
+    const newUnit = tempUnit === "F" ? "C" : "F";
+    setTempUnit(newUnit);
+
+    // Save to localStorage
+    if (typeof window !== "undefined") {
+      localStorage.setItem("tempUnit", newUnit);
+    }
+
+    // Give points for toggling units
+    setPoints((prev) => prev + 2);
+  };
+
   if (!weatherData && loading) {
     return (
       <div className="container max-w-5xl mx-auto p-4 py-8 flex justify-center items-center min-h-[50vh]">
@@ -109,9 +215,15 @@ export default function WeatherDashboard() {
           <div className="bg-red-100 dark:bg-red-900/30 p-4 rounded-lg mb-4">
             <p className="text-red-600 dark:text-red-400">{error}</p>
           </div>
-          <Button onClick={() => setCity("San Francisco")}>
-            Try Default City
-          </Button>
+          <div className="flex gap-4 justify-center">
+            <Button onClick={() => setCity("San Francisco")}>
+              Try Default City
+            </Button>
+            <Button onClick={useCurrentLocation} variant="outline">
+              <MapPin className="h-4 w-4 mr-2" />
+              Use My Location
+            </Button>
+          </div>
         </div>
       </div>
     );
@@ -154,6 +266,16 @@ export default function WeatherDashboard() {
             <span className="font-medium">{points} Points</span>
           </Badge>
 
+          <Button
+            variant="outline"
+            onClick={toggleTempUnit}
+            className="flex items-center gap-1 px-3 bg-blue-50 dark:bg-blue-900/20 hover:bg-blue-100 dark:hover:bg-blue-800/30 border-blue-200 dark:border-blue-800"
+          >
+            <span className="text-sm font-medium">
+              {tempUnit === "F" ? "°F | °C" : "°C | °F"}
+            </span>
+          </Button>
+
           <Button variant="outline" size="icon" onClick={toggleTheme}>
             {theme === "dark" ? (
               <Sun className="h-5 w-5" />
@@ -164,19 +286,40 @@ export default function WeatherDashboard() {
         </motion.div>
       </header>
 
-      <form onSubmit={handleSearch} className="mb-6 flex gap-2">
-        <Input
-          type="text"
-          placeholder="Enter city name..."
-          value={searchInput}
-          onChange={(e) => setSearchInput(e.target.value)}
-          className="flex-1"
-        />
-        <Button type="submit" variant="default">
-          <Search className="h-4 w-4 mr-2" />
-          Search
-        </Button>
-      </form>
+      <div className="mb-6 flex flex-col sm:flex-row gap-2">
+        <form onSubmit={handleSearch} className="flex gap-2 flex-1">
+          <Input
+            type="text"
+            placeholder="Enter city name..."
+            value={searchInput}
+            onChange={(e) => setSearchInput(e.target.value)}
+            className="flex-1"
+          />
+          <Button type="submit" variant="default">
+            <Search className="h-4 w-4 mr-2" />
+            Search
+          </Button>
+        </form>
+
+        <div className="flex gap-2 mt-2 sm:mt-0">
+          <Button onClick={useCurrentLocation} variant="outline">
+            <MapPin className="h-4 w-4 mr-2" />
+            My Location
+          </Button>
+
+          <Button
+            onClick={refreshWeather}
+            variant="outline"
+            disabled={isRefreshing}
+            className={isRefreshing ? "opacity-70" : ""}
+          >
+            <RefreshCw
+              className={`h-4 w-4 mr-2 ${isRefreshing ? "animate-spin" : ""}`}
+            />
+            Refresh
+          </Button>
+        </div>
+      </div>
 
       {weatherData && (
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
@@ -189,7 +332,10 @@ export default function WeatherDashboard() {
             <Card className="overflow-hidden border-none shadow-lg bg-white/80 dark:bg-slate-800/80 backdrop-blur-sm">
               <CardContent className="p-0">
                 <div className="relative">
-                  <WeatherAnimation condition={weatherData.current.condition} />
+                  <WeatherAnimation
+                    condition={weatherData.current.condition}
+                    isDay={weatherData.current.isDay}
+                  />
                   <div className="absolute inset-0 flex flex-col justify-end p-6 bg-gradient-to-t from-black/30 to-transparent text-white">
                     <div className="flex justify-between items-end">
                       <div>
@@ -199,13 +345,24 @@ export default function WeatherDashboard() {
                         <p className="text-lg opacity-90">
                           {weatherData.current.condition}
                         </p>
+                        <div className="flex items-center mt-1 text-sm opacity-80">
+                          <Clock className="h-3 w-3 mr-1" />
+                          <span>Updated {weatherData.current.lastUpdated}</span>
+                        </div>
                       </div>
                       <div className="text-right">
                         <div className="text-6xl font-bold">
-                          {weatherData.current.temp}°
+                          {tempUnit === "F"
+                            ? weatherData.current.temp
+                            : convertToCelsius(weatherData.current.temp)}
+                          °{tempUnit}
                         </div>
                         <p className="text-lg opacity-90">
-                          Feels like {weatherData.current.feelsLike}°
+                          Feels like{" "}
+                          {tempUnit === "F"
+                            ? weatherData.current.feelsLike
+                            : convertToCelsius(weatherData.current.feelsLike)}
+                          °{tempUnit}
                         </p>
                       </div>
                     </div>
@@ -243,7 +400,11 @@ export default function WeatherDashboard() {
                     </div>
                   </div>
 
-                  <WeatherForecast forecast={weatherData.forecast} />
+                  <WeatherForecast
+                    forecast={weatherData.forecast}
+                    tempUnit={tempUnit}
+                    convertTemp={convertToCelsius}
+                  />
 
                   <div className="mt-6">
                     <Button
@@ -275,7 +436,11 @@ export default function WeatherDashboard() {
                     <h3 className="text-xl font-bold mb-4">
                       Your Weather Stats
                     </h3>
-                    <WeatherStats />
+                    <WeatherStats
+                      coordinates={weatherData.coordinates}
+                      tempUnit={tempUnit}
+                      convertTemp={convertToCelsius}
+                    />
 
                     <div className="mt-6">
                       <h4 className="text-sm font-medium text-slate-500 dark:text-slate-400 mb-2">

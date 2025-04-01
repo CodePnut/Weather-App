@@ -1,10 +1,23 @@
-"use client"
+"use client";
 
-import { useState } from "react"
-import { motion } from "framer-motion"
-import { Cloud, CloudRain, Sun, Wind } from "lucide-react"
+import { useState } from "react";
+import { motion } from "framer-motion";
+import { Cloud, CloudRain, Sun, Wind, MapPin } from "lucide-react";
 
-export function WeatherStats() {
+interface WeatherStatsProps {
+  coordinates?: {
+    lat: number;
+    lon: number;
+  };
+  tempUnit?: "F" | "C";
+  convertTemp?: (temp: number) => number;
+}
+
+export function WeatherStats({
+  coordinates,
+  tempUnit = "F",
+  convertTemp = (t) => t,
+}: WeatherStatsProps) {
   const [stats] = useState({
     daysChecked: 28,
     rainyDays: 8,
@@ -12,7 +25,31 @@ export function WeatherStats() {
     windyDays: 5,
     highestTemp: 82,
     lowestTemp: 58,
-  })
+  });
+
+  // Format coordinates as readable values (e.g., 37.7749° N, 122.4194° W)
+  const formatCoordinates = () => {
+    if (!coordinates) return null;
+
+    const { lat, lon } = coordinates;
+    const latDirection = lat >= 0 ? "N" : "S";
+    const lonDirection = lon >= 0 ? "E" : "W";
+
+    return (
+      <div className="flex items-center justify-center text-xs text-slate-500 dark:text-slate-400 mt-4">
+        <MapPin className="h-3 w-3 mr-1" />
+        <span>
+          {Math.abs(lat).toFixed(4)}° {latDirection}, {Math.abs(lon).toFixed(4)}
+          ° {lonDirection}
+        </span>
+      </div>
+    );
+  };
+
+  // Get temperature with correct unit
+  const formatTemp = (temp: number) => {
+    return tempUnit === "F" ? temp : convertTemp(temp);
+  };
 
   return (
     <div className="space-y-4">
@@ -28,7 +65,9 @@ export function WeatherStats() {
           </div>
           <div>
             <div className="text-2xl font-bold">{stats.daysChecked}</div>
-            <div className="text-xs text-slate-500 dark:text-slate-400">Days Checked</div>
+            <div className="text-xs text-slate-500 dark:text-slate-400">
+              Days Checked
+            </div>
           </div>
         </motion.div>
 
@@ -43,7 +82,9 @@ export function WeatherStats() {
           </div>
           <div>
             <div className="text-2xl font-bold">{stats.sunnyDays}</div>
-            <div className="text-xs text-slate-500 dark:text-slate-400">Sunny Days</div>
+            <div className="text-xs text-slate-500 dark:text-slate-400">
+              Sunny Days
+            </div>
           </div>
         </motion.div>
 
@@ -58,7 +99,9 @@ export function WeatherStats() {
           </div>
           <div>
             <div className="text-2xl font-bold">{stats.rainyDays}</div>
-            <div className="text-xs text-slate-500 dark:text-slate-400">Rainy Days</div>
+            <div className="text-xs text-slate-500 dark:text-slate-400">
+              Rainy Days
+            </div>
           </div>
         </motion.div>
 
@@ -73,23 +116,34 @@ export function WeatherStats() {
           </div>
           <div>
             <div className="text-2xl font-bold">{stats.windyDays}</div>
-            <div className="text-xs text-slate-500 dark:text-slate-400">Windy Days</div>
+            <div className="text-xs text-slate-500 dark:text-slate-400">
+              Windy Days
+            </div>
           </div>
         </motion.div>
       </div>
 
       <div className="flex justify-between mt-4 p-3 rounded-lg bg-gradient-to-r from-amber-50 to-orange-50 dark:from-amber-900/20 dark:to-orange-900/20">
         <div className="text-center">
-          <div className="text-xs text-slate-500 dark:text-slate-400">Highest</div>
-          <div className="text-2xl font-bold">{stats.highestTemp}°</div>
+          <div className="text-xs text-slate-500 dark:text-slate-400">
+            Highest
+          </div>
+          <div className="text-2xl font-bold">
+            {formatTemp(stats.highestTemp)}°{tempUnit}
+          </div>
         </div>
         <div className="h-10 w-px bg-slate-200 dark:bg-slate-700" />
         <div className="text-center">
-          <div className="text-xs text-slate-500 dark:text-slate-400">Lowest</div>
-          <div className="text-2xl font-bold">{stats.lowestTemp}°</div>
+          <div className="text-xs text-slate-500 dark:text-slate-400">
+            Lowest
+          </div>
+          <div className="text-2xl font-bold">
+            {formatTemp(stats.lowestTemp)}°{tempUnit}
+          </div>
         </div>
       </div>
-    </div>
-  )
-}
 
+      {formatCoordinates()}
+    </div>
+  );
+}
