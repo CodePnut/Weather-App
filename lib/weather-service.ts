@@ -2,10 +2,14 @@
 
 import { cache } from "react";
 import { findCityByName, CityData } from "@/lib/cities-data";
-import { getConditionFromCode, getWeatherAttributes } from "@/lib/tomorrow-weather-codes";
+import {
+  getConditionFromCode,
+  getWeatherAttributes,
+} from "@/lib/tomorrow-weather-codes";
 
 const API_KEY = process.env.NEXT_PUBLIC_WEATHER_API_KEY;
-const BASE_URL = process.env.NEXT_PUBLIC_WEATHER_API_BASE_URL || "https://api.tomorrow.io/v4";
+const BASE_URL =
+  process.env.NEXT_PUBLIC_WEATHER_API_BASE_URL || "https://api.tomorrow.io/v4";
 
 // Maximum number of API retries
 const MAX_RETRIES = 2;
@@ -108,7 +112,6 @@ async function fetchWithRetry(
   }
 }
 
-
 // Utility function to convert Celsius to Fahrenheit
 function celsiusToFahrenheit(celsius: number): number {
   return Math.round((celsius * 9) / 5 + 32);
@@ -121,10 +124,7 @@ function getDayName(dateStr: string): string {
   return days[date.getDay()];
 }
 
-function isDaytime(
-  sunriseTimestamp: number,
-  sunsetTimestamp: number
-): boolean {
+function isDaytime(sunriseTimestamp: number, sunsetTimestamp: number): boolean {
   const now = new Date().getTime();
   return now >= sunriseTimestamp && now < sunsetTimestamp;
 }
@@ -183,22 +183,22 @@ export async function getWeatherByCoordinates(
 
     // Use metric units (Celsius)
     const units = "metric" as const;
-    
+
     const fields = [
-      "temperature", 
-      "temperatureApparent", 
-      "humidity", 
-      "windSpeed", 
+      "temperature",
+      "temperatureApparent",
+      "humidity",
+      "windSpeed",
       "precipitationProbability",
       "precipitationIntensity",
-      "weatherCode", 
-      "uvIndex", 
+      "weatherCode",
+      "uvIndex",
       "visibility",
       "pressureSurfaceLevel",
       "sunriseTime",
-      "sunsetTime"
+      "sunsetTime",
     ].join(",");
-    
+
     // Fetch current weather with improved no-cache approach
     const currentUrl = addNoCacheParam(
       `${BASE_URL}/timelines?location=${lat},${lon}&fields=${fields}&timesteps=current&units=${units}&apikey=${API_KEY}`
@@ -217,10 +217,10 @@ export async function getWeatherByCoordinates(
 
     const currentData = await currentRes.json();
     console.log("Current weather fetched for coordinates");
-    
+
     const currentValues = currentData.data.timelines[0].intervals[0].values;
     const currentTime = currentData.data.timelines[0].intervals[0].startTime;
-    
+
     let locationName = `${lat.toFixed(2)}, ${lon.toFixed(2)}`;
     try {
       const geocodeUrl = `https://api.bigdatacloud.net/data/reverse-geocode-client?latitude=${lat}&longitude=${lon}&localityLanguage=en`;
@@ -236,11 +236,13 @@ export async function getWeatherByCoordinates(
     const forecastFields = [
       "temperature",
       "weatherCode",
-      "precipitationProbability"
+      "precipitationProbability",
     ].join(",");
-    
+
     const forecastUrl = addNoCacheParam(
-      `${BASE_URL}/timelines?location=${lat},${lon}&fields=${forecastFields}&timesteps=1d&startTime=now&endTime=${encodeURIComponent(new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString())}&units=${units}&apikey=${API_KEY}`
+      `${BASE_URL}/timelines?location=${lat},${lon}&fields=${forecastFields}&timesteps=1d&startTime=now&endTime=${encodeURIComponent(
+        new Date(Date.now() + 5 * 24 * 60 * 60 * 1000).toISOString()
+      )}&units=${units}&apikey=${API_KEY}`
     );
 
     console.log("Fetching forecast data from:", forecastUrl);
@@ -261,7 +263,7 @@ export async function getWeatherByCoordinates(
     console.log("Is daytime:", isDay);
 
     const processedForecast = forecastData.data.timelines[0].intervals
-      .slice(0, 7) // Only take 7 days
+      .slice(0, 6) // Only take 6 days (current day + 5 forecast days)
       .map((item: any) => {
         const date = new Date(item.startTime);
         return {
@@ -269,7 +271,7 @@ export async function getWeatherByCoordinates(
           temp: Math.round(item.values.temperature),
           condition: getConditionFromCode(item.values.weatherCode, true), // Assume daytime for forecasts
           weatherCode: item.values.weatherCode,
-          precipitationProbability: item.values.precipitationProbability
+          precipitationProbability: item.values.precipitationProbability,
         };
       });
 
@@ -297,7 +299,7 @@ export async function getWeatherByCoordinates(
         precipitationProbability: currentValues.precipitationProbability,
         precipitationIntensity: currentValues.precipitationIntensity,
         visibility: currentValues.visibility,
-        pressure: currentValues.pressureSurfaceLevel
+        pressure: currentValues.pressureSurfaceLevel,
       },
       forecast: processedForecast,
       coordinates: { lat, lon },
@@ -341,27 +343,27 @@ export async function getWeatherByCityName(
     }
 
     const searchCity = encodeURIComponent(cityName);
-    
+
     try {
       const geocodeUrl = `https://nominatim.openstreetmap.org/search?q=${searchCity}&format=json&limit=1`;
       console.log("Geocoding city:", geocodeUrl);
-      
+
       const geocodeRes = await fetch(geocodeUrl, {
         headers: {
-          "User-Agent": "Weather-App/1.0"
-        }
+          "User-Agent": "Weather-App/1.0",
+        },
       });
-      
+
       if (!geocodeRes.ok) {
         throw new Error(`Geocoding failed: ${geocodeRes.status}`);
       }
-      
+
       const geocodeData = await geocodeRes.json();
-      
+
       if (geocodeData && geocodeData.length > 0) {
         const { lat, lon } = geocodeData[0];
         console.log(`City "${cityName}" geocoded to coordinates:`, lat, lon);
-        
+
         return await getWeatherByCoordinates(parseFloat(lat), parseFloat(lon));
       } else {
         console.error("City not found in geocoding service");
@@ -466,7 +468,7 @@ function getMockWeatherData(
     { code: 5000, condition: "Snowy" },
     { code: 2000, condition: "Foggy" },
   ];
-  
+
   // Generate forecast with varying temperatures and conditions
   const forecast = [];
   const days = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"];
@@ -476,18 +478,19 @@ function getMockWeatherData(
 
   const currentWeatherCode = isDay ? 1000 : 1000;
 
-  for (let i = 0; i < 7; i++) {
+  for (let i = 0; i < 6; i++) {
+    // Change to 6 days (today + 5 forecast days)
     const dayIndex = (today + i) % 7;
     const randomTemp = tempBase + Math.floor(Math.random() * 7) - 3; // -3 to +3 from base
     const randomWeatherIndex = Math.floor(Math.random() * weatherCodes.length);
     const weatherCode = weatherCodes[randomWeatherIndex];
-    
+
     forecast.push({
       day: days[dayIndex],
       temp: randomTemp,
       condition: weatherCode.condition,
       weatherCode: weatherCode.code,
-      precipitationProbability: Math.floor(Math.random() * 100)
+      precipitationProbability: Math.floor(Math.random() * 100),
     });
   }
 
@@ -508,7 +511,7 @@ function getMockWeatherData(
       precipitationProbability: Math.floor(Math.random() * 30), // Lower for sunny weather
       precipitationIntensity: 0.1,
       visibility: 10,
-      pressure: 1013
+      pressure: 1013,
     },
     forecast,
     coordinates,

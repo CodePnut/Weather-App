@@ -11,8 +11,8 @@ export default function ApiDebugPage() {
   const [apiStatus, setApiStatus] = useState<
     "loading" | "valid" | "invalid" | "missing"
   >("loading");
-  const [weatherResponse, setWeatherResponse] = useState<any>(null);
-  const [oneCallResponse, setOneCallResponse] = useState<any>(null);
+  const [timelineResponse, setTimelineResponse] = useState<any>(null);
+  const [currentResponse, setCurrentResponse] = useState<any>(null);
   const [forecastResponse, setForecastResponse] = useState<any>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -59,7 +59,7 @@ export default function ApiDebugPage() {
         if (!isValidApiKey(key)) {
           setApiStatus("invalid");
           setError(
-            "API key is missing or invalid. Please add a valid OpenWeatherMap API key to your .env.local file."
+            "API key is missing or invalid. Please add a valid Tomorrow.io API key to your .env.local file."
           );
           setIsLoading(false);
           return;
@@ -68,76 +68,113 @@ export default function ApiDebugPage() {
         // Test API endpoints
         const BASE_URL =
           process.env.NEXT_PUBLIC_WEATHER_API_BASE_URL ||
-          "https://api.openweathermap.org/data/2.5";
+          "https://api.tomorrow.io/v4";
         const LAT = 1.3521; // Singapore
         const LON = 103.8198;
 
-        // Test current weather API
-        const weatherUrl = addNoCacheParam(
-          `${BASE_URL}/weather?lat=${LAT}&lon=${LON}&units=metric&appid=${key}`
+        // Test Timeline API - Current Conditions
+        const currentFields = [
+          "temperature",
+          "temperatureApparent",
+          "humidity",
+          "windSpeed",
+          "weatherCode",
+          "uvIndex",
+          "visibility",
+          "pressureSurfaceLevel",
+          "sunriseTime",
+          "sunsetTime",
+        ].join(",");
+
+        const currentUrl = addNoCacheParam(
+          `${BASE_URL}/timelines?location=${LAT},${LON}&fields=${currentFields}&timesteps=current&units=metric&apikey=${key}`
         );
 
-        const weatherResponse = await fetch(weatherUrl, {
+        console.log("Fetching current weather data from:", currentUrl);
+        const currentRes = await fetch(currentUrl, {
           headers: {
             "Cache-Control": "no-cache, no-store, must-revalidate",
             Pragma: "no-cache",
           },
         });
 
-        if (!weatherResponse.ok) {
-          const errorText = await weatherResponse.text();
+        if (!currentRes.ok) {
+          const errorText = await currentRes.text();
           throw new Error(
-            `Weather API error: ${weatherResponse.status} ${weatherResponse.statusText}\n${errorText}`
+            `Current conditions API error: ${currentRes.status} ${currentRes.statusText}\n${errorText}`
           );
         }
 
-        const weatherData = await weatherResponse.json();
-        setWeatherResponse(weatherData);
+        const currentData = await currentRes.json();
+        setCurrentResponse(currentData);
 
-        // Test OneCall API
-        const oneCallUrl = addNoCacheParam(
-          `${BASE_URL}/onecall?lat=${LAT}&lon=${LON}&exclude=minutely,hourly,daily,alerts&units=metric&appid=${key}`
-        );
+        // Test Timeline API - Forecast (1h)
+        const forecastFields = [
+          "temperature",
+          "weatherCode",
+          "precipitationProbability",
+        ].join(",");
 
-        const oneCallResponse = await fetch(oneCallUrl, {
-          headers: {
-            "Cache-Control": "no-cache, no-store, must-revalidate",
-            Pragma: "no-cache",
-          },
-        });
-
-        if (oneCallResponse.ok) {
-          const oneCallData = await oneCallResponse.json();
-          setOneCallResponse(oneCallData);
-        } else {
-          console.warn("OneCall API failed but continuing with other tests");
-          const errorText = await oneCallResponse.text();
-          console.error(
-            `OneCall API error: ${oneCallResponse.status} ${oneCallResponse.statusText}\n${errorText}`
-          );
-        }
-
-        // Test Forecast API
         const forecastUrl = addNoCacheParam(
-          `${BASE_URL}/forecast?lat=${LAT}&lon=${LON}&units=metric&appid=${key}`
+          `${BASE_URL}/timelines?location=${LAT},${LON}&fields=${forecastFields}&timesteps=1h&startTime=now&endTime=${encodeURIComponent(
+            new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString()
+          )}&units=metric&apikey=${key}`
         );
 
-        const forecastResponse = await fetch(forecastUrl, {
+        console.log("Fetching hourly forecast data from:", forecastUrl);
+        const forecastRes = await fetch(forecastUrl, {
           headers: {
             "Cache-Control": "no-cache, no-store, must-revalidate",
             Pragma: "no-cache",
           },
         });
 
-        if (!forecastResponse.ok) {
-          const errorText = await forecastResponse.text();
+        if (!forecastRes.ok) {
+          const errorText = await forecastRes.text();
           throw new Error(
-            `Forecast API error: ${forecastResponse.status} ${forecastResponse.statusText}\n${errorText}`
+            `Hourly forecast API error: ${forecastRes.status} ${forecastRes.statusText}\n${errorText}`
           );
         }
 
-        const forecastData = await forecastResponse.json();
+        const forecastData = await forecastRes.json();
         setForecastResponse(forecastData);
+
+        // Test Timeline API - Daily forecast
+        const dailyFields = [
+          "temperature",
+          "temperatureApparent",
+          "temperatureMin",
+          "temperatureMax",
+          "weatherCode",
+          "precipitationProbability",
+          "precipitationIntensity",
+          "sunriseTime",
+          "sunsetTime",
+        ].join(",");
+
+        const timelineUrl = addNoCacheParam(
+          `${BASE_URL}/timelines?location=${LAT},${LON}&fields=${dailyFields}&timesteps=1d&startTime=now&endTime=${encodeURIComponent(
+            new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString()
+          )}&units=metric&apikey=${key}`
+        );
+
+        console.log("Fetching daily timeline data from:", timelineUrl);
+        const timelineRes = await fetch(timelineUrl, {
+          headers: {
+            "Cache-Control": "no-cache, no-store, must-revalidate",
+            Pragma: "no-cache",
+          },
+        });
+
+        if (!timelineRes.ok) {
+          const errorText = await timelineRes.text();
+          throw new Error(
+            `Daily timeline API error: ${timelineRes.status} ${timelineRes.statusText}\n${errorText}`
+          );
+        }
+
+        const timelineData = await timelineRes.json();
+        setTimelineResponse(timelineData);
 
         // All tests passed
         setApiStatus("valid");
@@ -158,8 +195,8 @@ export default function ApiDebugPage() {
   const refreshTests = () => {
     setIsLoading(true);
     setApiStatus("loading");
-    setWeatherResponse(null);
-    setOneCallResponse(null);
+    setTimelineResponse(null);
+    setCurrentResponse(null);
     setForecastResponse(null);
     setError(null);
 
@@ -216,7 +253,7 @@ export default function ApiDebugPage() {
   return (
     <div className="container mx-auto p-4 max-w-4xl">
       <div className="flex justify-between items-center mb-6">
-        <h1 className="text-2xl font-bold">Weather API Debug</h1>
+        <h1 className="text-2xl font-bold">Tomorrow.io API Debug</h1>
         <Button onClick={refreshTests} disabled={isLoading}>
           <RefreshCw
             className={`h-4 w-4 mr-2 ${isLoading ? "animate-spin" : ""}`}
@@ -278,7 +315,7 @@ export default function ApiDebugPage() {
                 >
                   <RefreshCw className="h-3 w-3 mr-1 animate-spin" /> Testing
                 </Badge>
-              ) : weatherResponse ? (
+              ) : currentResponse ? (
                 <Badge
                   variant="outline"
                   className="bg-green-100 text-green-800 dark:bg-green-900 dark:text-green-300"
@@ -302,55 +339,83 @@ export default function ApiDebugPage() {
                 <div className="h-4 bg-gray-200 dark:bg-gray-700 rounded w-5/6"></div>
                 <div className="h-4 bg-gray-200 dark:bg-gray-700 rounded w-4/6"></div>
               </div>
-            ) : weatherResponse ? (
+            ) : currentResponse ? (
               <div className="space-y-2 text-sm">
                 <div className="grid grid-cols-2 gap-2">
-                  <div className="p-2 bg-gray-50 dark:bg-gray-800 rounded">
-                    <span className="block text-gray-500 dark:text-gray-400">
-                      Location
-                    </span>
-                    <span className="font-medium">{weatherResponse.name}</span>
-                  </div>
-                  <div className="p-2 bg-gray-50 dark:bg-gray-800 rounded">
-                    <span className="block text-gray-500 dark:text-gray-400">
-                      Temperature
-                    </span>
-                    <span className="font-medium">
-                      {Math.round(weatherResponse.main.temp)}°C
-                    </span>
-                  </div>
-                  <div className="p-2 bg-gray-50 dark:bg-gray-800 rounded">
-                    <span className="block text-gray-500 dark:text-gray-400">
-                      Weather
-                    </span>
-                    <span className="font-medium">
-                      {weatherResponse.weather[0].main}
-                    </span>
-                  </div>
-                  <div className="p-2 bg-gray-50 dark:bg-gray-800 rounded">
-                    <span className="block text-gray-500 dark:text-gray-400">
-                      Humidity
-                    </span>
-                    <span className="font-medium">
-                      {weatherResponse.main.humidity}%
-                    </span>
-                  </div>
-                  <div className="p-2 bg-gray-50 dark:bg-gray-800 rounded">
-                    <span className="block text-gray-500 dark:text-gray-400">
-                      Wind
-                    </span>
-                    <span className="font-medium">
-                      {weatherResponse.wind.speed} m/s
-                    </span>
-                  </div>
-                  <div className="p-2 bg-gray-50 dark:bg-gray-800 rounded">
-                    <span className="block text-gray-500 dark:text-gray-400">
-                      Clouds
-                    </span>
-                    <span className="font-medium">
-                      {weatherResponse.clouds.all}%
-                    </span>
-                  </div>
+                  {currentResponse.data.timelines[0].intervals[0].values && (
+                    <>
+                      <div className="p-2 bg-gray-50 dark:bg-gray-800 rounded">
+                        <span className="block text-gray-500 dark:text-gray-400">
+                          Temperature
+                        </span>
+                        <span className="font-medium">
+                          {Math.round(
+                            currentResponse.data.timelines[0].intervals[0]
+                              .values.temperature
+                          )}
+                          °C
+                        </span>
+                      </div>
+                      <div className="p-2 bg-gray-50 dark:bg-gray-800 rounded">
+                        <span className="block text-gray-500 dark:text-gray-400">
+                          Weather Code
+                        </span>
+                        <span className="font-medium">
+                          {
+                            currentResponse.data.timelines[0].intervals[0]
+                              .values.weatherCode
+                          }
+                        </span>
+                      </div>
+                      <div className="p-2 bg-gray-50 dark:bg-gray-800 rounded">
+                        <span className="block text-gray-500 dark:text-gray-400">
+                          Humidity
+                        </span>
+                        <span className="font-medium">
+                          {Math.round(
+                            currentResponse.data.timelines[0].intervals[0]
+                              .values.humidity
+                          )}
+                          %
+                        </span>
+                      </div>
+                      <div className="p-2 bg-gray-50 dark:bg-gray-800 rounded">
+                        <span className="block text-gray-500 dark:text-gray-400">
+                          Wind Speed
+                        </span>
+                        <span className="font-medium">
+                          {Math.round(
+                            currentResponse.data.timelines[0].intervals[0]
+                              .values.windSpeed
+                          )}{" "}
+                          m/s
+                        </span>
+                      </div>
+                      <div className="p-2 bg-gray-50 dark:bg-gray-800 rounded">
+                        <span className="block text-gray-500 dark:text-gray-400">
+                          UV Index
+                        </span>
+                        <span className="font-medium">
+                          {Math.round(
+                            currentResponse.data.timelines[0].intervals[0]
+                              .values.uvIndex
+                          )}
+                        </span>
+                      </div>
+                      <div className="p-2 bg-gray-50 dark:bg-gray-800 rounded">
+                        <span className="block text-gray-500 dark:text-gray-400">
+                          Pressure
+                        </span>
+                        <span className="font-medium">
+                          {Math.round(
+                            currentResponse.data.timelines[0].intervals[0]
+                              .values.pressureSurfaceLevel
+                          )}{" "}
+                          hPa
+                        </span>
+                      </div>
+                    </>
+                  )}
                 </div>
               </div>
             ) : (
@@ -365,7 +430,7 @@ export default function ApiDebugPage() {
         <Card>
           <CardHeader>
             <CardTitle className="flex justify-between items-center">
-              <span>OneCall API (UV Index)</span>
+              <span>Hourly Forecast API</span>
               {isLoading ? (
                 <Badge
                   variant="outline"
@@ -373,7 +438,7 @@ export default function ApiDebugPage() {
                 >
                   <RefreshCw className="h-3 w-3 mr-1 animate-spin" /> Testing
                 </Badge>
-              ) : oneCallResponse ? (
+              ) : forecastResponse ? (
                 <Badge
                   variant="outline"
                   className="bg-green-100 text-green-800 dark:bg-green-900 dark:text-green-300"
@@ -396,55 +461,46 @@ export default function ApiDebugPage() {
                 <div className="h-4 bg-gray-200 dark:bg-gray-700 rounded"></div>
                 <div className="h-4 bg-gray-200 dark:bg-gray-700 rounded w-5/6"></div>
               </div>
-            ) : oneCallResponse ? (
+            ) : forecastResponse ? (
               <div className="space-y-2 text-sm">
-                <div className="grid grid-cols-2 gap-2">
-                  <div className="p-2 bg-gray-50 dark:bg-gray-800 rounded">
-                    <span className="block text-gray-500 dark:text-gray-400">
-                      UV Index
-                    </span>
-                    <span className="font-medium">
-                      {oneCallResponse.current.uvi}
-                    </span>
-                  </div>
-                  <div className="p-2 bg-gray-50 dark:bg-gray-800 rounded">
-                    <span className="block text-gray-500 dark:text-gray-400">
-                      Timezone
-                    </span>
-                    <span className="font-medium">
-                      {oneCallResponse.timezone}
-                    </span>
-                  </div>
-                  <div className="p-2 bg-gray-50 dark:bg-gray-800 rounded">
-                    <span className="block text-gray-500 dark:text-gray-400">
-                      Sunrise
-                    </span>
-                    <span className="font-medium">
-                      {new Date(
-                        oneCallResponse.current.sunrise * 1000
-                      ).toLocaleTimeString()}
-                    </span>
-                  </div>
-                  <div className="p-2 bg-gray-50 dark:bg-gray-800 rounded">
-                    <span className="block text-gray-500 dark:text-gray-400">
-                      Sunset
-                    </span>
-                    <span className="font-medium">
-                      {new Date(
-                        oneCallResponse.current.sunset * 1000
-                      ).toLocaleTimeString()}
-                    </span>
-                  </div>
+                <p className="mb-2">Showing first few hourly forecasts:</p>
+                <div className="space-y-2">
+                  {forecastResponse.data.timelines[0].intervals
+                    .slice(0, 4)
+                    .map((interval: any, index: number) => (
+                      <div
+                        key={index}
+                        className="p-2 bg-gray-50 dark:bg-gray-800 rounded"
+                      >
+                        <div className="flex justify-between">
+                          <span className="font-medium">
+                            {new Date(interval.startTime).toLocaleTimeString(
+                              [],
+                              { hour: "2-digit", minute: "2-digit" }
+                            )}
+                          </span>
+                          <span className="font-medium">
+                            {Math.round(interval.values.temperature)}°C
+                          </span>
+                        </div>
+                        <div className="flex justify-between text-gray-500 text-xs mt-1">
+                          <span>Code: {interval.values.weatherCode}</span>
+                          <span>
+                            Precip:{" "}
+                            {Math.round(
+                              interval.values.precipitationProbability
+                            )}
+                            %
+                          </span>
+                        </div>
+                      </div>
+                    ))}
                 </div>
               </div>
             ) : (
               <div className="text-center p-4">
                 <AlertTriangle className="h-10 w-10 mx-auto text-yellow-500 mb-2" />
-                <p>OneCall API not available or failed</p>
-                <p className="text-sm text-gray-500 mt-2">
-                  This is optional - the app will estimate UV index from other
-                  data
-                </p>
+                <p>Hourly forecast API not available or failed</p>
               </div>
             )}
           </CardContent>
@@ -453,7 +509,7 @@ export default function ApiDebugPage() {
         <Card className="md:col-span-2">
           <CardHeader>
             <CardTitle className="flex justify-between items-center">
-              <span>Forecast API</span>
+              <span>Daily Forecast API</span>
               {isLoading ? (
                 <Badge
                   variant="outline"
@@ -461,7 +517,7 @@ export default function ApiDebugPage() {
                 >
                   <RefreshCw className="h-3 w-3 mr-1 animate-spin" /> Testing
                 </Badge>
-              ) : forecastResponse ? (
+              ) : timelineResponse ? (
                 <Badge
                   variant="outline"
                   className="bg-green-100 text-green-800 dark:bg-green-900 dark:text-green-300"
@@ -484,57 +540,56 @@ export default function ApiDebugPage() {
                 <div className="h-4 bg-gray-200 dark:bg-gray-700 rounded"></div>
                 <div className="h-20 bg-gray-200 dark:bg-gray-700 rounded w-full"></div>
               </div>
-            ) : forecastResponse ? (
+            ) : timelineResponse ? (
               <div>
                 <p className="mb-3">
-                  Showing first 3 forecast periods of{" "}
-                  {forecastResponse.list.length} total:
+                  Showing {timelineResponse.data.timelines[0].intervals.length}{" "}
+                  day forecast:
                 </p>
-                <div className="grid grid-cols-3 gap-3">
-                  {forecastResponse.list
-                    .slice(0, 3)
-                    .map((forecast: any, index: number) => (
+                <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-3">
+                  {timelineResponse.data.timelines[0].intervals.map(
+                    (interval: any, index: number) => (
                       <div
                         key={index}
                         className="p-3 bg-gray-50 dark:bg-gray-800 rounded-lg"
                       >
-                        <p className="font-medium">{forecast.dt_txt}</p>
-                        <div className="mt-2 grid grid-cols-2 gap-1 text-sm">
-                          <div>
+                        <p className="font-medium">
+                          {new Date(interval.startTime).toLocaleDateString(
+                            undefined,
+                            { weekday: "short", month: "short", day: "numeric" }
+                          )}
+                        </p>
+                        <div className="mt-2 grid grid-cols-1 gap-1 text-sm">
+                          <div className="flex justify-between">
                             <span className="text-gray-500 dark:text-gray-400">
-                              Temp:
+                              High/Low:
                             </span>
-                            <span className="ml-1">
-                              {Math.round(forecast.main.temp)}°C
+                            <span>
+                              {Math.round(interval.values.temperatureMax)}°/
+                              {Math.round(interval.values.temperatureMin)}°C
                             </span>
                           </div>
-                          <div>
+                          <div className="flex justify-between">
                             <span className="text-gray-500 dark:text-gray-400">
-                              Weather:
+                              Code:
                             </span>
-                            <span className="ml-1">
-                              {forecast.weather[0].main}
-                            </span>
+                            <span>{interval.values.weatherCode}</span>
                           </div>
-                          <div>
+                          <div className="flex justify-between">
                             <span className="text-gray-500 dark:text-gray-400">
-                              Humidity:
+                              Precip %:
                             </span>
-                            <span className="ml-1">
-                              {forecast.main.humidity}%
-                            </span>
-                          </div>
-                          <div>
-                            <span className="text-gray-500 dark:text-gray-400">
-                              Wind:
-                            </span>
-                            <span className="ml-1">
-                              {forecast.wind.speed} m/s
+                            <span>
+                              {Math.round(
+                                interval.values.precipitationProbability
+                              )}
+                              %
                             </span>
                           </div>
                         </div>
                       </div>
-                    ))}
+                    )
+                  )}
                 </div>
               </div>
             ) : (
@@ -550,8 +605,8 @@ export default function ApiDebugPage() {
       <div className="mt-6 text-center text-sm text-gray-500 dark:text-gray-400">
         <p>This page is for development and debugging purposes only.</p>
         <p className="mt-1">
-          To fix API issues, ensure you have a valid OpenWeatherMap API key in
-          your .env.local file with the name NEXT_PUBLIC_WEATHER_API_KEY.
+          To fix API issues, ensure you have a valid Tomorrow.io API key in your
+          .env.local file with the name NEXT_PUBLIC_WEATHER_API_KEY.
         </p>
       </div>
     </div>
