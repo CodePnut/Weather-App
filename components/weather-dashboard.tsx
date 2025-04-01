@@ -513,7 +513,8 @@ export default function WeatherDashboard() {
                         Wind
                       </span>
                       <span className="text-lg font-medium">
-                        {weatherData.current.wind} mph
+                        {weatherData.current.wind}{" "}
+                        {weatherData.units === "metric" ? "m/s" : "mph"}
                       </span>
                     </div>
                     <div className="flex flex-col items-center p-3 bg-amber-50 dark:bg-amber-900/30 rounded-lg">

@@ -116,6 +116,45 @@ export async function getWeatherByCoordinates(
     if (!currentRes.ok) throw new Error("Failed to fetch current weather");
     const currentData = await currentRes.json();
 
+    // Fetch UV data using OneCall API (if available) or estimate from weather data
+    let uvIndex = 0;
+    try {
+      const oneCallRes = await fetch(
+        `${BASE_URL}/onecall?lat=${lat}&lon=${lon}&exclude=minutely,hourly,daily,alerts&units=${units}&appid=${API_KEY}`
+      );
+      if (oneCallRes.ok) {
+        const oneCallData = await oneCallRes.json();
+        uvIndex =
+          oneCallData.current.uvi ||
+          Math.min(Math.round(currentData.clouds.all / 10), 11);
+      } else {
+        // Fallback: Estimate UV index based on clouds and time of day
+        const cloudCoverage = currentData.clouds?.all || 0;
+        const isDay = isDaytime(
+          currentData.sys.sunrise,
+          currentData.sys.sunset,
+          currentData.timezone
+        );
+
+        // Lower cloud coverage = higher UV, but only during day
+        if (isDay) {
+          uvIndex = Math.max(
+            0,
+            Math.min(11, Math.round((100 - cloudCoverage) / 10))
+          );
+        } else {
+          uvIndex = 0; // No UV at night
+        }
+      }
+    } catch (error) {
+      console.error("Error fetching UV data:", error);
+      // Fallback UV calculation
+      uvIndex = Math.min(
+        Math.round((100 - (currentData.clouds?.all || 0)) / 10),
+        11
+      );
+    }
+
     // Fetch 7-day forecast
     const forecastRes = await fetch(
       `${BASE_URL}/forecast?lat=${lat}&lon=${lon}&units=${units}&appid=${API_KEY}`
@@ -147,15 +186,19 @@ export async function getWeatherByCoordinates(
       hour12: true,
     });
 
+    // Ensure wind speed is in km/h for metric
+    const windSpeed = currentData.wind.speed;
+    const windSpeedFormatted = Math.round(windSpeed); // Already in m/s for metric
+
     return {
       location: currentData.name,
       current: {
         temp: Math.round(currentData.main.temp),
         condition: getConditionFromCode(currentData.weather[0].id, isDay),
-        humidity: currentData.main.humidity,
-        wind: Math.round(currentData.wind.speed),
+        humidity: currentData.main.humidity, // Already accurate from API
+        wind: windSpeedFormatted,
         feelsLike: Math.round(currentData.main.feels_like),
-        uvIndex: Math.round(currentData.clouds.all / 20) + 1, // Estimate UV index from cloud coverage
+        uvIndex: uvIndex,
         lastUpdated: timestamp,
         isDay: isDay,
       },
@@ -201,6 +244,46 @@ export const getWeatherData = cache(
       if (!currentRes.ok) throw new Error("Failed to fetch current weather");
       const currentData = await currentRes.json();
 
+      // Fetch UV data using OneCall API (if available) or estimate from weather data
+      let uvIndex = 0;
+      try {
+        const { lat, lon } = currentData.coord;
+        const oneCallRes = await fetch(
+          `${BASE_URL}/onecall?lat=${lat}&lon=${lon}&exclude=minutely,hourly,daily,alerts&units=${units}&appid=${API_KEY}`
+        );
+        if (oneCallRes.ok) {
+          const oneCallData = await oneCallRes.json();
+          uvIndex =
+            oneCallData.current.uvi ||
+            Math.min(Math.round(currentData.clouds.all / 10), 11);
+        } else {
+          // Fallback: Estimate UV index based on clouds and time of day
+          const cloudCoverage = currentData.clouds?.all || 0;
+          const isDay = isDaytime(
+            currentData.sys.sunrise,
+            currentData.sys.sunset,
+            currentData.timezone
+          );
+
+          // Lower cloud coverage = higher UV, but only during day
+          if (isDay) {
+            uvIndex = Math.max(
+              0,
+              Math.min(11, Math.round((100 - cloudCoverage) / 10))
+            );
+          } else {
+            uvIndex = 0; // No UV at night
+          }
+        }
+      } catch (error) {
+        console.error("Error fetching UV data:", error);
+        // Fallback UV calculation
+        uvIndex = Math.min(
+          Math.round((100 - (currentData.clouds?.all || 0)) / 10),
+          11
+        );
+      }
+
       // Fetch 7-day forecast
       const forecastRes = await fetch(
         `${BASE_URL}/forecast?q=${searchCity}&units=${units}&appid=${API_KEY}`
@@ -232,15 +315,19 @@ export const getWeatherData = cache(
         hour12: true,
       });
 
+      // Ensure wind speed is in km/h for metric
+      const windSpeed = currentData.wind.speed;
+      const windSpeedFormatted = Math.round(windSpeed); // Already in m/s for metric
+
       return {
         location: currentData.name,
         current: {
           temp: Math.round(currentData.main.temp),
           condition: getConditionFromCode(currentData.weather[0].id, isDay),
-          humidity: currentData.main.humidity,
-          wind: Math.round(currentData.wind.speed),
+          humidity: currentData.main.humidity, // Already accurate from API
+          wind: windSpeedFormatted,
           feelsLike: Math.round(currentData.main.feels_like),
-          uvIndex: Math.round(currentData.clouds.all / 20) + 1, // Estimate UV index from cloud coverage
+          uvIndex: uvIndex,
           lastUpdated: timestamp,
           isDay: isDay,
         },
@@ -277,8 +364,8 @@ function getMockWeatherData(): WeatherData {
     current: {
       temp: 27, // Singapore's average temperature in Celsius
       condition: isDay ? "Sunny" : "Clear Night",
-      humidity: 75, // Singapore's typically high humidity
-      wind: 8,
+      humidity: 83, // Singapore's typically high humidity
+      wind: 3, // Wind speed in m/s
       feelsLike: 30, // With high humidity, feels hotter
       uvIndex: isDay ? 8 : 0, // High UV index in Singapore during the day
       lastUpdated: timestamp,
